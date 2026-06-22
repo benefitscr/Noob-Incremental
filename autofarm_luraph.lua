@@ -380,16 +380,12 @@ end)
 local function withCapsuleZone(ctype, fn)
     local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
     if not hrp then fn(); return end
-    if not part then
-        -- no zone found — try to fire anyway in case server doesn't check proximity
-        fn(); return
-    end
+    if not part then fn(); return end
     local origin=hrp.CFrame
-    -- teleport directly onto the touch part, Y+2 so we land inside the trigger
-    hrp.CFrame=CFrame.new(part.Position+Vector3.new(0,2,0))
-    task.wait(0.8)   -- server needs time to register new position
+    hrp.CFrame = part.CFrame
+    task.wait(0.5)
     fn()
-    task.wait(capsuleOpenWait)
+    task.wait(0.2)
     hrp.CFrame=origin
 end
 
@@ -701,7 +697,15 @@ safeLoop(3, function()
         local prism = prismAmountV and tonumber(prismAmountV.Value) or 0
         local price = CAPSULE_PRICE[selectedMinCap] or 1e9
         if prism >= price then
-            withCapsuleZone(selectedMinCap,function() fire("OpenCapsule",selectedMinCap) end)
+            withCapsuleZone(selectedMinCap, function()
+                -- open as many as affordable in one zone visit
+                while true do
+                    local p2 = prismAmountV and tonumber(prismAmountV.Value) or 0
+                    if p2 < price or not S.minionCap then break end
+                    fire("OpenCapsule", selectedMinCap)
+                    task.wait(0.3)
+                end
+            end)
         end
     end
 end)
@@ -861,21 +865,18 @@ TabFarm:CreateDropdown({
     CurrentOption={selectedMinCap}, MultipleOptions=false, Flag="capZone",
     Callback=function(o) selectedMinCap=o[1] or "Classic"; saveSettings() end,
 })
-TabFarm:CreateToggle({Name=L("tog_autoCap"), CurrentValue=S.minionCap, Flag="acap", Callback=function(v) S.minionCap=v; saveSettings() end})
-TabFarm:CreateSlider({
-    Name="Capsule Open Wait (s)", Range={0.5,8}, Increment=0.5,
-    CurrentValue=capsuleOpenWait, Flag="capWait",
-    Callback=function(v) capsuleOpenWait=v; saveSettings() end,
-})
+TabFarm:CreateToggle({Name=L("tog_autoCap"), CurrentValue=S.minionCap, Flag="acap", Callback=function(v)
+    S.minionCap=v; saveSettings()
+end})
 TabFarm:CreateButton({Name=L("btn_openAll"), Callback=function()
     task.spawn(function()
         local count=0
-        withCapsuleZone(selectedMinCap,function()
-            local price=CAPSULE_PRICE[selectedMinCap] or 1e9
+        local price=CAPSULE_PRICE[selectedMinCap] or 1e9
+        withCapsuleZone(selectedMinCap, function()
             while true do
                 local prism=prismAmountV and tonumber(prismAmountV.Value) or 0
                 if prism<price then break end
-                fire("OpenCapsule",selectedMinCap); count=count+1; task.wait(0.5)
+                fire("OpenCapsule",selectedMinCap); count=count+1; task.wait(0.3)
             end
         end)
         notify(L("notif_capZone"),L("notif_capOpened")..count,"package")
