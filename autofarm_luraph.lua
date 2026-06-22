@@ -755,7 +755,7 @@ safeLoop(2, function()
     fire("Ice",selectedIceBtn); task.wait(0.15); hrp.CFrame=origin
 end)
 
-safeLoop(0.4, function()
+safeLoop(1, function()
     if not (S.mining and next(selectedOres)~=nil) then return end
     local folder=getOreFolder(); local hrp=getHRP()
     if not (folder and hrp) then return end
