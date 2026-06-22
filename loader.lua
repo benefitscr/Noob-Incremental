@@ -120,7 +120,7 @@ Tab:CreateButton({
         if busy then return end
         local key = currentKey:gsub("%s", ""):upper()
         if key == "" then
-            Rayfield:Notify({ Title = "!", Content = L("no_key"), Duration = 4, Image = "alert-triangle" })
+            Rayfield:Notify({ Title = "!", Content = L("no_key"), Duration = 4, Image = 4483362458 })
             return
         end
 
@@ -132,7 +132,7 @@ Tab:CreateButton({
         local ok, body = pcall(game.HttpGet, game, url, true)
         if not ok then
             setStatus(L("srv_err"), false)
-            Rayfield:Notify({ Title = "Error", Content = tostring(body):sub(1,80), Duration = 5, Image = "wifi-off" })
+            Rayfield:Notify({ Title = "Error", Content = tostring(body):sub(1,80), Duration = 5, Image = 4483362458 })
             busy = false
             return
         end
@@ -141,7 +141,7 @@ Tab:CreateButton({
         if not ok2 or not data.valid then
             local msg = (ok2 and data and data.error) or L("invalid")
             setStatus(msg, false)
-            Rayfield:Notify({ Title = "Invalid Key", Content = msg, Duration = 6, Image = "x-circle" })
+            Rayfield:Notify({ Title = "Invalid Key", Content = msg, Duration = 6, Image = 4483362458 })
             busy = false
             return
         end
@@ -158,7 +158,7 @@ Tab:CreateButton({
 
         if not scriptBody then
             setStatus(L("dl_fail"), false)
-            Rayfield:Notify({ Title = "Error", Content = L("dl_fail"), Duration = 5, Image = "download-x" })
+            Rayfield:Notify({ Title = "Error", Content = L("dl_fail"), Duration = 5, Image = 4483362458 })
             busy = false
             return
         end
@@ -169,7 +169,7 @@ Tab:CreateButton({
             Title   = "✓ " .. L("welcome") .. LP.Name,
             Content = "Noob Incremental · Benefit Script",
             Duration = 4,
-            Image   = "check-circle",
+            Image   = 4483362458,
         })
         task.wait(1.5)
         pcall(function() Rayfield:Destroy() end)
@@ -192,7 +192,7 @@ Tab:CreateButton({
             Title   = "Discord",
             Content = L("copied"),
             Duration = 3,
-            Image   = "message-circle",
+            Image   = 4483362458,
         })
     end,
 })
