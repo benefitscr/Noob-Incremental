@@ -346,7 +346,27 @@ do
     if uiZ then
         for _, ct2 in ipairs({"Classic","Super"}) do
             local mdl = uiZ:FindFirstChild("__Capsule"..ct2)
-            if mdl then CAPSULE_PARTS[ct2] = mdl:FindFirstChild("TouchPart") end
+            if mdl then
+                local tp = mdl:FindFirstChild("TouchPart")
+                    or mdl:FindFirstChildWhichIsA("BasePart")
+                    or mdl:FindFirstChildOfClass("Part")
+                CAPSULE_PARTS[ct2] = tp
+            end
+        end
+    end
+    -- fallback: search whole UIZones for any part with "Capsule" in parent name
+    if uiZ and (not CAPSULE_PARTS.Classic) then
+        for _, obj in ipairs(uiZ:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                local pn = obj.Parent and obj.Parent.Name or ""
+                if pn:lower():find("capsule") then
+                    if pn:lower():find("super") then
+                        CAPSULE_PARTS.Super = CAPSULE_PARTS.Super or obj
+                    else
+                        CAPSULE_PARTS.Classic = CAPSULE_PARTS.Classic or obj
+                    end
+                end
+            end
         end
     end
 end
@@ -357,14 +377,20 @@ LP.PlayerGui.ChildAdded:Connect(function(child)
     if child.Name=="CapsuleOpeningDisplayFrame" then child.Enabled=false end
 end)
 
-local HIDE_CF = CFrame.new(0,-500,0)
 local function withCapsuleZone(ctype, fn)
     local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
-    if not (part and hrp) then fn(); return end
+    if not hrp then fn(); return end
+    if not part then
+        -- no zone found — try to fire anyway in case server doesn't check proximity
+        fn(); return
+    end
     local origin=hrp.CFrame
-    hrp.CFrame=HIDE_CF; task.wait(0.05)
-    hrp.CFrame=CFrame.new(part.Position+Vector3.new(0,4,0)); task.wait(0.15)
-    fn(); task.wait(capsuleOpenWait); hrp.CFrame=origin
+    -- teleport directly onto the touch part, Y+2 so we land inside the trigger
+    hrp.CFrame=CFrame.new(part.Position+Vector3.new(0,2,0))
+    task.wait(0.8)   -- server needs time to register new position
+    fn()
+    task.wait(capsuleOpenWait)
+    hrp.CFrame=origin
 end
 
 local ICE_BTN = {}
