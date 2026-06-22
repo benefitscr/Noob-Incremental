@@ -750,7 +750,6 @@ safeLoop(2, function()
     if not (d and d.part) then fire("Ice",selectedIceBtn); return end
     local hrp=getHRP(); if not hrp then return end
     local origin=hrp.CFrame
-    hrp.CFrame=HIDE_CF; task.wait(0.05)
     hrp.CFrame=CFrame.new(d.part.Position+Vector3.new(0,3,0)); task.wait(iceTeleportWait)
     fire("Ice",selectedIceBtn); task.wait(0.15); hrp.CFrame=origin
 end)
