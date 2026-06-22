@@ -721,17 +721,17 @@ safeLoop(3, function()
             if not needed or current >= needed then fire("AwakenTier") end
         else fire("AwakenTier") end
     end
-    if S.minionCap then
-        local price = CAPSULE_PRICE[selectedMinCap] or 1e9
-        local prism = prismAmountV and tonumber(prismAmountV.Value) or 0
-        if prism >= price then
-            bulkCapsules(selectedMinCap, function()
-                if not S.minionCap then return false end
-                local p2 = prismAmountV and tonumber(prismAmountV.Value) or 0
-                return p2 >= price
-            end)
-        end
-    end
+end)
+
+-- Capsule auto-open runs on its own slow loop so it doesn't block farming
+safeLoop(4, function()
+    if not S.minionCap then return end
+    local price = CAPSULE_PRICE[selectedMinCap] or 1e9
+    local prism = prismAmountV and tonumber(prismAmountV.Value) or 0
+    if prism < price then return end
+    withCapsuleZone(selectedMinCap, function()
+        fire("OpenCapsule", selectedMinCap)
+    end)
 end)
 
 task.spawn(function()
