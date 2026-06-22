@@ -33,7 +33,7 @@ local T = {
         srv_err  = "Server error. Try again.",
         no_key   = "Please enter your key first.",
         dl_fail  = "Download failed. Try again.",
-        copied   = "Discord link copied to clipboard!",
+        copied   = "Discord link copied!",
         label1   = "Paste your key above and click Activate.",
         label2   = "Lifetime key — unlimited sessions.",
     },
@@ -61,6 +61,12 @@ local T = {
 }
 local function L(k) return (T[LANG] and T[LANG][k]) or T.en[k] or k end
 
+local function notify(title, content, dur)
+    pcall(function()
+        Rayfield:Notify({ Title = title, Content = content, Duration = dur or 4 })
+    end)
+end
+
 -- ─── Pre-fetch main script in background ─────────────────────────────────────
 local scriptBody, scriptErr
 task.spawn(function()
@@ -83,26 +89,23 @@ local Win = Rayfield:CreateWindow({
 
 local Tab = Win:CreateTab(L("tab"), "key-round")
 
--- ─── Key section ──────────────────────────────────────────────────────────────
 Tab:CreateSection(L("sec_key"))
 
 local currentKey = ""
 Tab:CreateInput({
-    Name            = L("inp_name"),
-    PlaceholderText = L("inp_ph"),
+    Name                     = L("inp_name"),
+    PlaceholderText          = L("inp_ph"),
     RemoveTextAfterFocusLost = false,
-    Callback = function(v) currentKey = v end,
+    Callback                 = function(v) currentKey = v end,
 })
 
--- Status label (updated dynamically)
 local statusLabel = Tab:CreateLabel("  ")
-
 local busy = false
 local sessionId = nil
 
-local function setStatus(msg, ok)
-    local icon = ok and "✓" or "✗"
-    statusLabel:Set(icon .. "  " .. msg)
+local function setStatus(msg, isOk)
+    local icon = isOk and "✓  " or "✗  "
+    statusLabel:Set(icon .. msg)
 end
 
 local function startHeartbeat()
@@ -120,19 +123,17 @@ Tab:CreateButton({
         if busy then return end
         local key = currentKey:gsub("%s", ""):upper()
         if key == "" then
-            Rayfield:Notify({ Title = "!", Content = L("no_key"), Duration = 4, Image = 4483362458 })
+            setStatus(L("no_key"), false)
             return
         end
 
         busy = true
         setStatus(L("checking"), true)
 
-        -- Validate key (game:HttpGet works in all executors)
         local url = API .. "/api/validate?key=" .. key .. "&user=" .. LP.Name
         local ok, body = pcall(game.HttpGet, game, url, true)
         if not ok then
-            setStatus(L("srv_err"), false)
-            Rayfield:Notify({ Title = "Error", Content = tostring(body):sub(1,80), Duration = 5, Image = 4483362458 })
+            setStatus(L("srv_err") .. " | " .. tostring(body):sub(1,60), false)
             busy = false
             return
         end
@@ -141,15 +142,13 @@ Tab:CreateButton({
         if not ok2 or not data.valid then
             local msg = (ok2 and data and data.error) or L("invalid")
             setStatus(msg, false)
-            Rayfield:Notify({ Title = "Invalid Key", Content = msg, Duration = 6, Image = 4483362458 })
             busy = false
             return
         end
 
         sessionId = data.sessionId
-
-        -- Wait for background script download
         setStatus(L("fetching"), true)
+
         local waited = 0
         while not scriptBody and not scriptErr and waited < 30 do
             task.wait(0.5)
@@ -158,19 +157,13 @@ Tab:CreateButton({
 
         if not scriptBody then
             setStatus(L("dl_fail"), false)
-            Rayfield:Notify({ Title = "Error", Content = L("dl_fail"), Duration = 5, Image = 4483362458 })
             busy = false
             return
         end
 
-        -- All good — launch
         startHeartbeat()
-        Rayfield:Notify({
-            Title   = "✓ " .. L("welcome") .. LP.Name,
-            Content = "Noob Incremental · Benefit Script",
-            Duration = 4,
-            Image   = 4483362458,
-        })
+        setStatus(L("welcome") .. LP.Name .. "!", true)
+        notify(L("welcome") .. LP.Name, "Noob Incremental · Benefit Script", 4)
         task.wait(1.5)
         pcall(function() Rayfield:Destroy() end)
         task.wait(0.3)
@@ -178,9 +171,7 @@ Tab:CreateButton({
     end,
 })
 
--- ─── Info section ─────────────────────────────────────────────────────────────
 Tab:CreateSection(L("sec_info"))
-
 Tab:CreateLabel(L("label1"))
 Tab:CreateLabel(L("label2"))
 
@@ -188,11 +179,7 @@ Tab:CreateButton({
     Name = L("btn_disc"),
     Callback = function()
         pcall(setclipboard, DISCORD)
-        Rayfield:Notify({
-            Title   = "Discord",
-            Content = L("copied"),
-            Duration = 3,
-            Image   = 4483362458,
-        })
+        setStatus(L("copied"), true)
+        notify("Discord", L("copied"), 3)
     end,
 })
