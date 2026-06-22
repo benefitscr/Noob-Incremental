@@ -378,13 +378,12 @@ LP.PlayerGui.ChildAdded:Connect(function(child)
 end)
 
 -- Returns CFrames for entering/exiting the capsule zone
-local function capsuleZoneCFs(part)
+local function capsuleEnterCF(part)
     local p  = part.Position
     local sz = part.Size
     local enterY = p.Y - sz.Y/2 + 3
-    local enterCF = CFrame.new(p.X, enterY, p.Z)
-    local exitCF  = CFrame.new(p.X + sz.X + 8, enterY, p.Z)
-    return enterCF, exitCF
+    return CFrame.new(p.X, enterY, p.Z),
+           CFrame.new(p.X + sz.X + 8, enterY, p.Z)
 end
 
 local function withCapsuleZone(ctype, fn)
@@ -392,11 +391,9 @@ local function withCapsuleZone(ctype, fn)
     if not hrp then fn(); return end
     if not part then fn(); return end
     local origin=hrp.CFrame
-    local enterCF, exitCF = capsuleZoneCFs(part)
-    hrp.CFrame = exitCF;  task.wait(0.1)
+    local enterCF = capsuleEnterCF(part)
     hrp.CFrame = enterCF; task.wait(0.5)
     fn()
-    task.wait(0.1)
     hrp.CFrame = origin
 end
 
@@ -405,7 +402,7 @@ local function bulkCapsules(ctype, cond)
     local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
     if not (part and hrp) then return 0 end
     local origin=hrp.CFrame
-    local enterCF, exitCF = capsuleZoneCFs(part)
+    local enterCF, exitCF = capsuleEnterCF(part)
     local count=0
     while cond() do
         hrp.CFrame = exitCF;  task.wait(0.1)
