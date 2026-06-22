@@ -377,16 +377,44 @@ LP.PlayerGui.ChildAdded:Connect(function(child)
     if child.Name=="CapsuleOpeningDisplayFrame" then child.Enabled=false end
 end)
 
+-- Returns CFrames for entering/exiting the capsule zone
+local function capsuleZoneCFs(part)
+    local p  = part.Position
+    local sz = part.Size
+    local enterY = p.Y - sz.Y/2 + 3
+    local enterCF = CFrame.new(p.X, enterY, p.Z)
+    local exitCF  = CFrame.new(p.X + sz.X + 8, enterY, p.Z)
+    return enterCF, exitCF
+end
+
 local function withCapsuleZone(ctype, fn)
     local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
     if not hrp then fn(); return end
     if not part then fn(); return end
     local origin=hrp.CFrame
-    hrp.CFrame = part.CFrame
-    task.wait(0.5)
+    local enterCF, exitCF = capsuleZoneCFs(part)
+    hrp.CFrame = exitCF;  task.wait(0.1)
+    hrp.CFrame = enterCF; task.wait(0.5)
     fn()
-    task.wait(0.2)
+    task.wait(0.1)
+    hrp.CFrame = origin
+end
+
+-- Bulk: re-entry loop while cond() returns true, returns opened count
+local function bulkCapsules(ctype, cond)
+    local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
+    if not (part and hrp) then return 0 end
+    local origin=hrp.CFrame
+    local enterCF, exitCF = capsuleZoneCFs(part)
+    local count=0
+    while cond() do
+        hrp.CFrame = exitCF;  task.wait(0.1)
+        hrp.CFrame = enterCF; task.wait(0.5)
+        fire("OpenCapsule", ctype)
+        count=count+1; task.wait(0.1)
+    end
     hrp.CFrame=origin
+    return count
 end
 
 local ICE_BTN = {}
@@ -694,17 +722,13 @@ safeLoop(3, function()
         else fire("AwakenTier") end
     end
     if S.minionCap then
-        local prism = prismAmountV and tonumber(prismAmountV.Value) or 0
         local price = CAPSULE_PRICE[selectedMinCap] or 1e9
+        local prism = prismAmountV and tonumber(prismAmountV.Value) or 0
         if prism >= price then
-            withCapsuleZone(selectedMinCap, function()
-                -- open as many as affordable in one zone visit
-                while true do
-                    local p2 = prismAmountV and tonumber(prismAmountV.Value) or 0
-                    if p2 < price or not S.minionCap then break end
-                    fire("OpenCapsule", selectedMinCap)
-                    task.wait(0.3)
-                end
+            bulkCapsules(selectedMinCap, function()
+                if not S.minionCap then return false end
+                local p2 = prismAmountV and tonumber(prismAmountV.Value) or 0
+                return p2 >= price
             end)
         end
     end
@@ -870,14 +894,10 @@ TabFarm:CreateToggle({Name=L("tog_autoCap"), CurrentValue=S.minionCap, Flag="aca
 end})
 TabFarm:CreateButton({Name=L("btn_openAll"), Callback=function()
     task.spawn(function()
-        local count=0
         local price=CAPSULE_PRICE[selectedMinCap] or 1e9
-        withCapsuleZone(selectedMinCap, function()
-            while true do
-                local prism=prismAmountV and tonumber(prismAmountV.Value) or 0
-                if prism<price then break end
-                fire("OpenCapsule",selectedMinCap); count=count+1; task.wait(0.3)
-            end
+        local count = bulkCapsules(selectedMinCap, function()
+            local prism=prismAmountV and tonumber(prismAmountV.Value) or 0
+            return prism >= price
         end)
         notify(L("notif_capZone"),L("notif_capOpened")..count,"package")
     end)
