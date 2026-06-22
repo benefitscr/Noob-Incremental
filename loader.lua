@@ -109,13 +109,7 @@ local function startHeartbeat()
     task.spawn(function()
         while true do
             task.wait(60)
-            pcall(function()
-                HttpService:PostAsync(
-                    API .. "/api/heartbeat",
-                    HttpService:JSONEncode({ sessionId = sessionId }),
-                    Enum.HttpContentType.ApplicationJson
-                )
-            end)
+            pcall(game.HttpGet, game, API .. "/api/heartbeat?sid=" .. (sessionId or ""), true)
         end
     end)
 end
@@ -133,13 +127,12 @@ Tab:CreateButton({
         busy = true
         setStatus(L("checking"), true)
 
-        -- Validate key
-        local url = API .. "/api/validate?key=" .. HttpService:UrlEncode(key)
-                    .. "&user=" .. HttpService:UrlEncode(LP.Name)
-        local ok, body = pcall(function() return HttpService:GetAsync(url) end)
+        -- Validate key (game:HttpGet works in all executors)
+        local url = API .. "/api/validate?key=" .. key .. "&user=" .. LP.Name
+        local ok, body = pcall(game.HttpGet, game, url, true)
         if not ok then
             setStatus(L("srv_err"), false)
-            Rayfield:Notify({ Title = "Error", Content = L("srv_err"), Duration = 5, Image = "wifi-off" })
+            Rayfield:Notify({ Title = "Error", Content = tostring(body):sub(1,80), Duration = 5, Image = "wifi-off" })
             busy = false
             return
         end
