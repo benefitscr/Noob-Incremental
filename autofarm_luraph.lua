@@ -202,6 +202,8 @@ local selectedChest   = "Chest"
 local selectedMinCap  = "Classic"
 local prismEquipPat   = 1
 local prismThreshold  = 3
+local patterns        = {nil,nil,nil}
+local minionPatterns  = {nil,nil,nil}
 local manualRuneLuck  = nil
 
 -- ─── SETTINGS ─────────────────────────────────────────────────────────────────
@@ -485,8 +487,6 @@ local function readMinionEquipped()
 end
 
 -- ─── PATTERNS ─────────────────────────────────────────────────────────────────
-local patterns       = {nil,nil,nil}
-local minionPatterns = {nil,nil,nil}
 local function applyPattern(n)
     if not patterns[n] then return end
     for _, sn in ipairs(SLOTS) do
