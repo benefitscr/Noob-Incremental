@@ -899,8 +899,11 @@ safeLoop(0.8, function()
         end
     end
     if best then
-        if S.miningMode=="teleport" then hrp.CFrame=CFrame.new(best+Vector3.new(0,4,0))
-        else local hum=getHum(); if hum then hum:MoveTo(best) end end
+        if S.miningMode=="teleport" and not S.runes then
+            hrp.CFrame=CFrame.new(best+Vector3.new(0,4,0))
+        elseif S.miningMode~="teleport" then
+            local hum=getHum(); if hum then hum:MoveTo(best) end
+        end
     end
 end)
 
