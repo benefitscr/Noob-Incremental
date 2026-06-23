@@ -135,7 +135,7 @@ local capsuleCount       = 0
 local SAVE_FILE = "noob_incremental_v8.cfg"
 local BOOL_KEYS = {
     "wheat","deposit","blaze","chest","minionCap",
-    "iceFarm","waterFarm","campfire","ashConvert","hireNoob","fillBucket",
+    "iceFarm","waterFarm","campfire","ashConvert","hireNoob","fillBucket","autoNoob",
     "factory","cook","animals","mutation","mining","exchangeOre",
     "runes","tier","awaken","upgradeQuest","prismEquip",
     "StarterTree","TycoonTree","FarmTree","PrismTree","IceTree","MiningTree",
@@ -200,6 +200,11 @@ local function loadSettings()
     end
 end
 loadSettings()
+
+-- Convert array → dict for Fluent Multi-dropdown Default (Fluent expects {key=true})
+local function toDict(arr)
+    local d={}; for _,v in ipairs(arr) do d[v]=true end; return d
+end
 
 -- ─── Game Object Cache ────────────────────────────────────────────────────────
 -- Wheat click-detectors (once at start)
@@ -830,7 +835,7 @@ T:AddToggle("hireNoob",  {Title="Hire Noob",  Default=S.hireNoob  }):OnChanged(f
 
 div(T)
 hdr(T,"👶  Noob Upgrades")
-T:AddDropdown("noobTypes",{Title="Types",Values={"Starter","Explorer","Knight","Fisherman","Cooker","Farmer","Archer","Soldier","Magician","Hacker 1","Hacker 2","Hacker 3","Hacker 4"},Multi=true,Default=selectedNoobs}):OnChanged(function(v)
+T:AddDropdown("noobTypes",{Title="Types",Values={"Starter","Explorer","Knight","Fisherman","Cooker","Farmer","Archer","Soldier","Magician","Hacker 1","Hacker 2","Hacker 3","Hacker 4"},Multi=true,Default=toDict(selectedNoobs)}):OnChanged(function(v)
     selectedNoobs={}; for k,_ in pairs(v) do selectedNoobs[#selectedNoobs+1]=k end; saveSettings()
 end)
 T:AddToggle("autoNoob",{Title="Auto Upgrade",Default=S.autoNoob}):OnChanged(function(v) S.autoNoob=v; saveSettings() end)
@@ -926,7 +931,7 @@ do local T=Tabs.Mine
 hdr(T,"⛏️  Ore Selection  ("..(#ORE_TYPES>0 and #ORE_TYPES.." found" or "scan failed")..")")
 local savedOreList={}
 for nm,v in pairs(selectedOres) do if v then savedOreList[#savedOreList+1]=nm end end
-T:AddDropdown("oreList",{Title="Ore Types",Values=(#ORE_TYPES>0 and ORE_TYPES or {"(none)"}),Multi=true,Default=savedOreList}):OnChanged(function(v)
+T:AddDropdown("oreList",{Title="Ore Types",Values=(#ORE_TYPES>0 and ORE_TYPES or {"(none)"}),Multi=true,Default=toDict(savedOreList)}):OnChanged(function(v)
     selectedOres={}; for k,_ in pairs(v) do selectedOres[k]=true end; saveSettings()
 end)
 T:AddButton({Title="Select All",Callback=function()
@@ -950,7 +955,7 @@ end -- Mine
 do local T=Tabs.Runes
 
 hdr(T,"🎲  Zone Roll")
-T:AddDropdown("runeZones",{Title="Active Zones",Values={"Basic","Super","Advanced","Cosmic Prism","Hacker","Snowy","Deepcore"},Multi=true,Default=selectedRunes}):OnChanged(function(v)
+T:AddDropdown("runeZones",{Title="Active Zones",Values={"Basic","Super","Advanced","Cosmic Prism","Hacker","Snowy","Deepcore"},Multi=true,Default=toDict(selectedRunes)}):OnChanged(function(v)
     selectedRunes={}; for k,_ in pairs(v) do selectedRunes[#selectedRunes+1]=k end; saveSettings()
 end)
 T:AddSlider("runeInt",{Title="Interval (s)  [min 0.155]",Default=math.max(runeInterval,0.155),Min=0.15,Max=2.0,Rounding=2}):OnChanged(function(v) runeInterval=v; saveSettings() end)
@@ -1140,13 +1145,13 @@ hdr(T,"🪙  Coin Farm")
 T:AddParagraph({Title="",Content="Equip Coin gear → exchange animals → deposit milestones → restore"})
 T:AddToggle("autoCoinFarm",{Title="🪙  Auto Coin Farm ON",Default=S.autoCoinFarm}):OnChanged(function(v) S.autoCoinFarm=v; saveSettings() end)
 T:AddSlider("coinInt",{Title="Interval (s)",Default=coinInterval,Min=10,Max=300,Rounding=0}):OnChanged(function(v) coinInterval=v; saveSettings() end)
-T:AddDropdown("milestones",{Title="Milestones to Deposit",Values={"Milk","Egg","RuneLuck","RuneSpeed","RuneBulk","TierLuck"},Multi=true,Default=selectedMilestones}):OnChanged(function(v)
+T:AddDropdown("milestones",{Title="Milestones to Deposit",Values={"Milk","Egg","RuneLuck","RuneSpeed","RuneBulk","TierLuck"},Multi=true,Default=toDict(selectedMilestones)}):OnChanged(function(v)
     selectedMilestones={}; for k,_ in pairs(v) do selectedMilestones[#selectedMilestones+1]=k end; saveSettings()
 end)
 
 div(T)
 hdr(T,"🧪  Potions  (auto-use when < 60s left)")
-T:AddDropdown("potList",{Title="Potions",Values=POTION_NAMES,Multi=true,Default=selectedPotions}):OnChanged(function(v)
+T:AddDropdown("potList",{Title="Potions",Values=POTION_NAMES,Multi=true,Default=toDict(selectedPotions)}):OnChanged(function(v)
     selectedPotions={}; for k,_ in pairs(v) do selectedPotions[#selectedPotions+1]=k end; saveSettings()
 end)
 T:AddToggle("autoPot",{Title="Auto Use ON",Default=S.autoPot}):OnChanged(function(v) S.autoPot=v; saveSettings() end)
