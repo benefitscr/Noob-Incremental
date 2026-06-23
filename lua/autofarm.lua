@@ -454,47 +454,57 @@ local function capsuleEnterCF(part)
 end
 
 -- Heartbeat holds HRP in zone every frame — other farm loops can't move character.
--- Phase 1: 60ms continuous hold → fire once → Phase 2: hold until server confirms.
-local function holdAndFire(ctype, enterCF, hrp, timeout)
+-- Timer starts only after FIRST successful snap (HRP confirmed moved).
+local function holdAndFire(ctype, enterCF, timeout)
     local prev=_lastCapsuleOpen
     local fired=false
-    local t0=tick()
-    -- Heartbeat overwrites HRP every frame so nothing else can move the character
+    local firstSnapAt=nil
     local conn=RunService.Heartbeat:Connect(function()
         local h=getHRP(); if not h then return end
         h.CFrame=enterCF
-        if not fired and tick()-t0>=0.06 then
+        if not firstSnapAt then firstSnapAt=tick() end
+        if not fired and tick()-firstSnapAt>=0.08 then
             fired=true
             fire("OpenCapsule", ctype)
         end
     end)
-    -- Wait for MinionCapsuleOpened or timeout (polling in separate thread)
-    local deadline=tick()+timeout
+    local deadline=tick()+timeout+0.5
     while _lastCapsuleOpen==prev and tick()<deadline do task.wait(0.05) end
     conn:Disconnect()
     return _lastCapsuleOpen~=prev
 end
 
+local function getCapsulePart(ctype)
+    if CAPSULE_PARTS[ctype] and CAPSULE_PARTS[ctype].Parent then
+        return CAPSULE_PARTS[ctype]
+    end
+    local uiZ=GC and GC:FindFirstChild("UIZones")
+    local mdl=uiZ and uiZ:FindFirstChild("__Capsule"..ctype)
+    local part=mdl and (mdl:FindFirstChild("TouchPart") or mdl:FindFirstChildWhichIsA("BasePart"))
+    if part then CAPSULE_PARTS[ctype]=part end
+    return part
+end
+
 local function withCapsuleZone(ctype)
-    local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
-    if not (part and hrp) then fire("OpenCapsule",ctype); return end
+    local part=getCapsulePart(ctype); local hrp=getHRP()
+    if not (part and hrp) then return end  -- never fire without confirmed zone
     local enterCF=capsuleEnterCF(part)
     capsuleBusy=true
-    holdAndFire(ctype, enterCF, hrp, 3)
+    holdAndFire(ctype, enterCF, 3)
     capsuleBusy=false
 end
 
 local function bulkCapsules(ctype, cond)
     local timeout=tick()+5
     while capsuleBusy and tick()<timeout do task.wait(0.1) end
-    local part=CAPSULE_PARTS[ctype]
+    local part=getCapsulePart(ctype)
     if not part then return 0 end
     local enterCF=capsuleEnterCF(part)
     local count=0
     while cond() do
         local h=getHRP(); if not h then break end
         capsuleBusy=true
-        local ok=holdAndFire(ctype, enterCF, h, 3)
+        local ok=holdAndFire(ctype, enterCF, 3)
         capsuleBusy=false
         if not ok then break end
         count=count+1
