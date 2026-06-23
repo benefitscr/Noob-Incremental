@@ -16,19 +16,26 @@ local LP      = Players.LocalPlayer
 local GC      = workspace.__GAME_CONTENT
 local MR      = game:GetService("ReplicatedStorage").__Net.MainRemote
 
+-- ─── ANTI-AFK ─────────────────────────────────────────────────────────────────
+local VirtualUser = game:GetService("VirtualUser")
+game:GetService("Players").LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new(0,0))
+end)
+
 -- ─── LOCALIZATION ─────────────────────────────────────────────────────────────
 local LANG = "en"
 local L_TABLE = {
     en = {
         win_title="Noob Incremental", win_sub="v7 · Benefit",
-        tab_farm="Farm", tab_combat="Combat", tab_mine="Mine",
+        tab_farm="Farm", tab_combat="Runes", tab_mine="Mine",
         tab_upgrades="Upgrades", tab_equip="Equipment",
         tab_tele="Teleport", tab_chances="Chances",
-        sec_wheat="Wheat", sec_chests="Chests", sec_capsules="Capsules",
-        sec_world2="World 2", sec_world1="World 1",
-        sec_blaze="Blaze", sec_runes="Rune Rolling",
-        sec_runetele="Rune Zones", sec_tier="Tier & Awakening",
-        sec_oreTypes="Ore Types", sec_mineSettings="Settings",
+        sec_wheat="🌾 Wheat", sec_chests="📦 Chests", sec_capsules="🎱 Capsules",
+        sec_world2="❄️ World 2", sec_world1="🏭 World 1",
+        sec_blaze="🔥 Blaze", sec_runes="🎲 Rune Rolling",
+        sec_runetele="Rune Zones", sec_tier="⬆️ Tier & Awakening",
+        sec_oreTypes="⛏️ Ore Types", sec_mineSettings="⚙️ Settings",
         sec_automation="Automation", sec_trees="Upgrade Trees",
         sec_aura="Aura", sec_slots="Equipment Slots",
         sec_minions="Minions", sec_minionPat="Minion Patterns",
@@ -36,21 +43,21 @@ local L_TABLE = {
         sec_prismEquip="Prism Auto-Equip",
         sec_capsuleZones="Capsule Zones", sec_treeTele="Trees",
         sec_stats="Your Stats", sec_runeChances="Rune ETA by Zone",
-        tog_farmWheat="Farm Wheat", tog_depositWheat="Deposit Wheat",
-        tog_autoChest="Auto Open Chest", tog_autoCap="Auto Open Capsule",
-        tog_iceFarm="Ice Farm", tog_waterFarm="Water Farm",
+        tog_farmWheat="🌾 Auto Wheat Farm", tog_depositWheat="🌾 Auto Deposit",
+        tog_autoChest="📦 Auto Open Chest", tog_autoCap="🎱 Auto Open Capsule",
+        tog_iceFarm="❄️ Ice Farm", tog_waterFarm="💧 Water Farm",
         tog_campfire="Campfire", tog_ashConvert="Wood → Ash",
         tog_fillBucket="Fill Bucket", tog_hireNoob="Hire Noob",
         tog_factory="Factory", tog_cook="Cook",
         tog_animals="Animals", tog_mutation="Mutation",
-        tog_blaze="Auto Blaze", tog_runes="Roll Runes",
-        tog_tier="Roll Tier", tog_awaken="Awaken",
+        tog_blaze="🔥 Auto Blaze", tog_runes="🎲 Auto Roll Runes",
+        tog_tier="⬆️ Auto Tier", tog_awaken="⭐ Auto Awaken",
         tog_upgradeQuest="Auto Upgrade Quest",
         tog_teleportMode="Teleport Mode",
-        tog_autoMine="Auto Mine", tog_exchangeOre="Exchange All Minerals",
+        tog_autoMine="⛏️ Auto Mine", tog_exchangeOre="♻️ Exchange All Minerals",
         tog_prismEquip="Enable Auto-Equip",
-        btn_open200="Open 200 Chests", btn_openAll="Open All Now",
-        btn_mineAll="Mine All Ores", btn_calcEta="Calculate ETA",
+        btn_open200="📦 Open 200 Chests", btn_openAll="🎱 Open All Now",
+        btn_mineAll="⛏️ Mine All Ores", btn_calcEta="Calculate ETA",
         lbl_runeInterval="Roll Interval (s)",
         lbl_iceTeleWait="Ice Teleport Wait (s)",
         lbl_prismTrigger="Trigger (sec before payout)",
@@ -68,14 +75,14 @@ local L_TABLE = {
     },
     ru = {
         win_title="Noob Incremental", win_sub="v7 · Benefit",
-        tab_farm="Фарм", tab_combat="Бой", tab_mine="Шахта",
+        tab_farm="Фарм", tab_combat="Руны", tab_mine="Шахта",
         tab_upgrades="Апгрейды", tab_equip="Снаряжение",
         tab_tele="Телепорт", tab_chances="Шансы",
-        sec_wheat="Пшеница", sec_chests="Сундуки", sec_capsules="Капсулы",
-        sec_world2="Мир 2", sec_world1="Мир 1",
-        sec_blaze="Блейз", sec_runes="Прокатка рун",
-        sec_runetele="Зоны рун", sec_tier="Уровень и пробуждение",
-        sec_oreTypes="Типы руды", sec_mineSettings="Настройки",
+        sec_wheat="🌾 Пшеница", sec_chests="📦 Сундуки", sec_capsules="🎱 Капсулы",
+        sec_world2="❄️ Мир 2", sec_world1="🏭 Мир 1",
+        sec_blaze="🔥 Блейз", sec_runes="🎲 Прокатка рун",
+        sec_runetele="Зоны рун", sec_tier="⬆️ Уровень и пробуждение",
+        sec_oreTypes="⛏️ Типы руды", sec_mineSettings="⚙️ Настройки",
         sec_automation="Автоматизация", sec_trees="Деревья апгрейдов",
         sec_aura="Аура", sec_slots="Слоты снаряжения",
         sec_minions="Миньоны", sec_minionPat="Шаблоны миньонов",
@@ -83,21 +90,21 @@ local L_TABLE = {
         sec_prismEquip="Авто-экип призмы",
         sec_capsuleZones="Зоны капсул", sec_treeTele="Деревья",
         sec_stats="Ваши статы", sec_runeChances="ETA рун по зонам",
-        tog_farmWheat="Фарм пшеницы", tog_depositWheat="Сдать пшеницу",
-        tog_autoChest="Авто-сундук", tog_autoCap="Авто-капсула",
-        tog_iceFarm="Ледяной фарм", tog_waterFarm="Водный фарм",
+        tog_farmWheat="🌾 Авто-фарм пшеницы", tog_depositWheat="🌾 Авто-сдача",
+        tog_autoChest="📦 Авто-сундук", tog_autoCap="🎱 Авто-капсула",
+        tog_iceFarm="❄️ Ледяной фарм", tog_waterFarm="💧 Водный фарм",
         tog_campfire="Костёр", tog_ashConvert="Дерево → Зола",
         tog_fillBucket="Заполнить ведро", tog_hireNoob="Нанять нуба",
         tog_factory="Фабрика", tog_cook="Готовка",
         tog_animals="Животные", tog_mutation="Мутация",
-        tog_blaze="Авто-блейз", tog_runes="Катать руны",
-        tog_tier="Катать уровень", tog_awaken="Пробуждение",
+        tog_blaze="🔥 Авто-блейз", tog_runes="🎲 Авто-прокатка рун",
+        tog_tier="⬆️ Авто-уровень", tog_awaken="⭐ Авто-пробуждение",
         tog_upgradeQuest="Авто-квест апгрейда",
         tog_teleportMode="Режим телепорта",
-        tog_autoMine="Авто-добыча", tog_exchangeOre="Обменять минералы",
+        tog_autoMine="⛏️ Авто-добыча", tog_exchangeOre="♻️ Обменять минералы",
         tog_prismEquip="Включить авто-экип",
-        btn_open200="Открыть 200 сундуков", btn_openAll="Открыть всё",
-        btn_mineAll="Добыть все руды", btn_calcEta="Вычислить ETA",
+        btn_open200="📦 Открыть 200 сундуков", btn_openAll="🎱 Открыть всё",
+        btn_mineAll="⛏️ Добыть все руды", btn_calcEta="Вычислить ETA",
         lbl_runeInterval="Интервал броска (с)",
         lbl_iceTeleWait="Ожидание телепорта (с)",
         lbl_prismTrigger="Триггер (сек до выплаты)",
@@ -234,20 +241,6 @@ local function saveSettings()
     local ores = {}
     for nm, v in pairs(selectedOres) do if v then ores[#ores+1] = nm end end
     if #ores > 0 then lines[#lines+1] = "selectedOres="..table.concat(ores,",") end
-    -- Equipment patterns
-    for i=1,3 do
-        if patterns[i] then
-            for _, sn in ipairs(SLOTS) do
-                local ids = patterns[i][sn]
-                if ids and #ids>0 then
-                    lines[#lines+1]="pat"..i.."_"..sn.."="..table.concat(ids,",")
-                end
-            end
-        end
-        if minionPatterns[i] and #minionPatterns[i]>0 then
-            lines[#lines+1]="minPat"..i.."="..table.concat(minionPatterns[i],",")
-        end
-    end
     pcall(writefile, SAVE_FILE, table.concat(lines,"\n"))
 end
 local function loadSettings()
@@ -273,19 +266,6 @@ local function loadSettings()
                 selectedRunes={}; for r in v:gmatch("[^,]+") do selectedRunes[#selectedRunes+1]=r end
             elseif k=="selectedOres" and v~="" then
                 selectedOres={}; for r in v:gmatch("[^,]+") do selectedOres[r]=true end
-            elseif k:match("^pat(%d)_(.+)$") then
-                local pi,sn=k:match("^pat(%d)_(.+)$"); pi=tonumber(pi)
-                if pi and pi>=1 and pi<=3 then
-                    if not patterns[pi] then patterns[pi]={} end
-                    patterns[pi][sn]={}
-                    for id in v:gmatch("[^,]+") do patterns[pi][sn][#patterns[pi][sn]+1]=id end
-                end
-            elseif k:match("^minPat(%d)$") then
-                local pi=tonumber(k:match("^minPat(%d)$"))
-                if pi and pi>=1 and pi<=3 and v~="" then
-                    minionPatterns[pi]={}
-                    for id in v:gmatch("[^,]+") do minionPatterns[pi][#minionPatterns[pi]+1]=id end
-                end
             end
         end
     end
@@ -845,10 +825,9 @@ local Win = Rayfield:CreateWindow({
 })
 
 local TabFarm    = Win:CreateTab(L("tab_farm"),     "wheat")
-local TabCombat  = Win:CreateTab(L("tab_combat"),   "swords")
+local TabCombat  = Win:CreateTab(L("tab_combat"),   "scroll")
 local TabMine    = Win:CreateTab(L("tab_mine"),     "pickaxe")
 local TabUpgrade = Win:CreateTab(L("tab_upgrades"), "trending-up")
-local TabEquip   = Win:CreateTab(L("tab_equip"),    "backpack")
 local TabTele    = Win:CreateTab(L("tab_tele"),     "map-pin")
 local TabChances = Win:CreateTab(L("tab_chances"),  "percent")
 
@@ -1023,226 +1002,6 @@ for _, tn in ipairs(TREE_NAMES) do
         Callback=function(v) S[tnKey]=v; saveSettings() end,
     })
 end
-
--- ══ EQUIPMENT ══════════════════════════════════════════════════════════════════
-if #ownedAuras > 0 then
-    TabEquip:CreateSection(L("sec_aura"))
-    TabEquip:CreateDropdown({
-        Name="Aura", Options=ownedAuras, Flag="aura",
-        CurrentOption=(currentAura~="" and {currentAura} or {}), MultipleOptions=false,
-        Callback=function(o) if o[1] then fire("EquipAura",o[1]) end end,
-    })
-end
-
--- Equipment Slots
-TabEquip:CreateSection(L("sec_slots"))
-do
-    local invF=LP.FEATURES.EQUIPMENT.Inventory
-    local eqF2=LP.FEATURES.EQUIPMENT.Equipped
-    for _, sn in ipairs(SLOTS) do
-        local sf=invF:FindFirstChild(sn)
-        local ef=eqF2:FindFirstChild(sn)
-        if sf and #sf:GetChildren() > 0 then
-            -- Build name→id maps
-            local nameById, nameCount = {}, {}
-            for _, item in ipairs(sf:GetChildren()) do
-                if item:IsA("StringValue") then
-                    local base = item.Value~="" and item.Value or ("ID "..item.Name)
-                    nameById[item.Name] = base
-                    nameCount[base] = (nameCount[base] or 0) + 1
-                end
-            end
-
-            -- Build clean dropdown options (no [ON]/[OFF])
-            local opts, idByOpt, curOpts = {}, {}, {}
-            for _, item in ipairs(sf:GetChildren()) do
-                if item:IsA("StringValue") then
-                    local base = nameById[item.Name]
-                    local dedup = (nameCount[base] or 1) > 1 and (" #"..item.Name) or ""
-                    local label = base..dedup
-                    opts[#opts+1] = label
-                    idByOpt[label] = item.Name
-                    local eqItem = ef and ef:FindFirstChild(item.Name)
-                    if eqItem and eqItem.Value then curOpts[#curOpts+1] = label end
-                end
-            end
-            table.sort(opts)
-
-            local function getEquippedStr()
-                if not ef then return L("lbl_none") end
-                local names = {}
-                for _, item in ipairs(ef:GetChildren()) do
-                    if item.Value then
-                        local nm = nameById[item.Name]
-                        if nm then names[#names+1] = nm end
-                    end
-                end
-                return #names > 0 and table.concat(names, ", ") or L("lbl_none")
-            end
-
-            local sname = sn
-            local eqLabel = TabEquip:CreateLabel(sname..": "..getEquippedStr())
-
-            TabEquip:CreateDropdown({
-                Name=sname, Options=opts, Flag="slot_"..sname,
-                CurrentOption=curOpts, MultipleOptions=true,
-                Callback=function(selected)
-                    if type(selected)=="string" then selected={selected} end
-                    if type(selected)~="table" then return end
-                    task.spawn(function()
-                        unequipSlot(sname); task.wait(0.2)
-                        local count = 0
-                        for _, lbl in ipairs(selected) do
-                            local trimmed = tostring(lbl):gsub("^%s*(.-)%s*$","%1")
-                            local sid = idByOpt[trimmed]
-                            if sid then equipItem(sname, sid); task.wait(0.12); count=count+1 end
-                        end
-                        task.wait(0.3)
-                        eqLabel:Set(sname..": "..getEquippedStr())
-                    end)
-                end,
-            })
-        end
-    end
-end
-
--- Minions — grouped by type, individual selection via dropdown
-TabEquip:CreateSection(L("sec_minions"))
-do
-    local invF2=MINIONS_F and MINIONS_F:FindFirstChild("Inventory")
-    if invF2 and #invF2:GetChildren() > 0 then
-        -- Group by base type name (strip trailing " #123")
-        local groups, groupOrder={}, {}
-        for _, item in ipairs(invF2:GetChildren()) do
-            local nameV=item:FindFirstChild("Name")
-            local fullName=(nameV and nameV.Value~="") and nameV.Value or item.Name
-            local base=fullName:match("^(.-)%s*#%d+$") or fullName
-            if not groups[base] then
-                groups[base]={ids={}, displayNames={}, equipped=0}
-                groupOrder[#groupOrder+1]=base
-            end
-            local grp=groups[base]
-            grp.ids[#grp.ids+1]=item.Name
-            grp.displayNames[item.Name]=fullName
-            local eqV=item:FindFirstChild("Equipped")
-            if eqV and eqV.Value then grp.equipped=grp.equipped+1 end
-        end
-        table.sort(groupOrder)
-
-        for _, typeName in ipairs(groupOrder) do
-            local grp=groups[typeName]
-            local total=#grp.ids
-            local tn=typeName
-            local grpIds=grp.ids
-
-            -- Build dropdown options — deduplicate names with [id] suffix
-            local opts, idByOpt, curOpts, usedNames = {}, {}, {}, {}
-            for _, id in ipairs(grpIds) do
-                local dname=grp.displayNames[id] or (tn.." #"..id)
-                -- Make unique if name collides
-                if usedNames[dname] then dname=dname.." ["..id.."]" end
-                usedNames[dname]=true
-                opts[#opts+1]=dname
-                idByOpt[dname]=id
-                local itm=invF2:FindFirstChild(id)
-                local eqV=itm and itm:FindFirstChild("Equipped")
-                if eqV and eqV.Value then curOpts[#curOpts+1]=dname end
-            end
-
-            local statLbl=TabEquip:CreateLabel(tn..": "..grp.equipped.."/"..total.." надеты")
-            TabEquip:CreateDropdown({
-                Name=tn, Options=opts, CurrentOption=curOpts,
-                MultipleOptions=true, Flag="min_"..tn:gsub("[^%w]","_"),
-                Callback=function(selected)
-                    if type(selected)=="string" then selected={selected} end
-                    if type(selected)~="table" then return end
-                    task.spawn(function()
-                        for _, id in ipairs(grpIds) do unequipMinion(id); task.wait(0.08) end
-                        task.wait(0.15)
-                        local count=0
-                        for _, dname in ipairs(selected) do
-                            local trimmed=tostring(dname):gsub("^%s*(.-)%s*$","%1")
-                            local sid=idByOpt[trimmed]
-                            if sid then equipMinion(sid); task.wait(0.1); count=count+1 end
-                        end
-                        statLbl:Set(tn..": "..count.."/"..total.." надеты")
-                    end)
-                end,
-            })
-        end
-    else
-        TabEquip:CreateLabel("Миньонов в инвентаре нет")
-    end
-end
-
-TabEquip:CreateSection(L("sec_minionPat"))
-for i, letter in ipairs({"A","B","C"}) do
-    local idx=i
-    TabEquip:CreateButton({Name="Save Minion "..letter, Callback=function()
-        minionPatterns[idx]=readMinionEquipped()
-        notify("Minion Pattern "..letter, #minionPatterns[idx].." minions saved","save")
-    end})
-    TabEquip:CreateButton({Name="Apply Minion "..letter, Callback=function()
-        local ids=minionPatterns[idx]
-        if not ids or #ids==0 then notify(L("notif_error"),L("notif_notSaved"),"alert-circle"); return end
-        task.spawn(function()
-            unequipAllMinions(); task.wait(0.15)
-            for _, id in ipairs(ids) do equipMinion(id); task.wait(0.1) end
-            notify("Minion Pattern "..letter, #ids.." minions applied","check")
-        end)
-    end})
-end
-
-TabEquip:CreateSection(L("sec_bestMinion"))
-for _, cur in ipairs({"Cash","Coin","Oof","Water","Bread","HackPoints","Rebirth","Wood","Planks","Ice","Ash","Gem"}) do
-    local c=cur
-    TabEquip:CreateButton({Name="Best "..c, Callback=function()
-        fire("EquipBestMinions",c); notify("Best Minions",c.." "..L("notif_bestMinions"),"users")
-    end})
-end
-
-TabEquip:CreateSection(L("sec_equipPat"))
-local function patStr(n)
-    if not patterns[n] then return L("notif_notSaved") end
-    local inv=readInventory(); local parts={}
-    for _, sn in ipairs(SLOTS) do
-        local ids=patterns[n][sn]
-        if ids and #ids>0 then
-            local names={}
-            for _, id in ipairs(ids) do names[#names+1]=(inv[sn] and inv[sn][id]) or id end
-            parts[#parts+1]=sn..": "..table.concat(names,", ")
-        end
-    end
-    return #parts>0 and table.concat(parts," | ") or "(empty)"
-end
-for i, letter in ipairs({"A","B","C"}) do
-    local idx=i
-    TabEquip:CreateButton({Name="Save Pattern "..letter, Callback=function()
-        patterns[idx]=readEquipped()
-        notify("Pattern "..letter, patStr(idx):sub(1,80),"save")
-    end})
-    TabEquip:CreateButton({Name="Apply Pattern "..letter, Callback=function()
-        if not patterns[idx] then notify(L("notif_error"),L("notif_notSaved"),"alert-circle"); return end
-        task.spawn(function() applyPattern(idx) end)
-        notify("Pattern "..letter,"Applied","check")
-    end})
-end
-
-TabEquip:CreateSection(L("sec_prismEquip"))
-TabEquip:CreateDropdown({
-    Name="Pattern to apply", Options={"A","B","C"}, Flag="prismPat",
-    CurrentOption={({"A","B","C"})[prismEquipPat]}, MultipleOptions=false,
-    Callback=function(o) local m={A=1,B=2,C=3}; prismEquipPat=m[o[1]] or 1; saveSettings() end,
-})
-TabEquip:CreateSlider({
-    Name=L("lbl_prismTrigger"), Range={1,10}, Increment=1,
-    CurrentValue=prismThreshold, Flag="prismThr",
-    Callback=function(v) prismThreshold=v; saveSettings() end,
-})
-TabEquip:CreateToggle({
-    Name=L("tog_prismEquip"), CurrentValue=S.prismEquip, Flag="pe_",
-    Callback=function(v) S.prismEquip=v; prismArmed=false; saveSettings() end,
-})
 
 -- ══ TELEPORT ══════════════════════════════════════════════════════════════════
 TabTele:CreateSection(L("sec_capsuleZones"))
