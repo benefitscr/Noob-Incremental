@@ -202,7 +202,7 @@ local S = {
     Cash=false, Coin=false, HackPoints=false, Gem=false,
 }
 local selectedRunes   = {}
-local runeInterval    = 0.1
+local runeInterval    = 0.15
 local rollCount       = 500
 local selectedIceBtn  = 12
 local iceTeleportWait = 0.15
@@ -252,7 +252,7 @@ local function loadSettings()
     for line in txt:gmatch("[^\n]+") do
         local k, v = line:match("^(.-)=(.*)$")
         if k then
-            if     k=="runeInterval"    then runeInterval    = tonumber(v) or 0.1
+            if     k=="runeInterval"    then runeInterval    = tonumber(v) or 0.15
             elseif k=="rollCount"       then rollCount       = tonumber(v) or 500
             elseif k=="selectedChest"   then selectedChest   = v or "Chest"
             elseif k=="selectedMinCap"  then selectedMinCap  = v or "Classic"
@@ -963,7 +963,7 @@ TabCombat:CreateButton({Name=L("btn_rollN"), Callback=function()
                 rollProgressLbl:Set(i.."/"..total.." — "..(ok and aura or "?"))
                 task.wait(0.01)
             end
-            task.wait(0.18)
+            task.wait(0.15)
         end
         local ok2,aura2 = pcall(function() return LP.FEATURES.AURAS.Equipped.Value end)
         local final = ok2 and aura2 or "?"
