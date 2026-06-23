@@ -440,17 +440,17 @@ local function capsuleEnterCF(part)
     return CFrame.new(p.X, p.Y, p.Z)
 end
 
--- Snap into zone + fire every 0.1s until server confirms via MinionCapsuleOpened
--- Server needs: player inside zone AND explicit fire. Both together = reliable open.
+-- Test result: server needs ≥50ms in zone before accepting OpenCapsule fire.
+-- Phase 1: snap 60ms (1+ server tick) → Phase 2: fire once → Phase 3: wait confirm.
+-- Total per capsule: ~60ms snap + ~85ms confirm = ~145ms, then release.
 local function holdAndFire(ctype, enterCF, hrp, timeout)
-    local t0=tick()
     local prev=_lastCapsuleOpen
-    repeat
-        hrp.CFrame=enterCF          -- stay inside TouchPart
-        fire("OpenCapsule", ctype)  -- signal server to open
-        task.wait(0.1)
-    until _lastCapsuleOpen~=prev or tick()-t0>timeout
-    return _lastCapsuleOpen~=prev   -- true=confirmed, false=timeout
+    local t0=tick()
+    repeat hrp.CFrame=enterCF; task.wait(0.02) until tick()-t0>=0.06
+    fire("OpenCapsule", ctype)
+    local tFire=tick()
+    repeat hrp.CFrame=enterCF; task.wait(0.02) until _lastCapsuleOpen~=prev or tick()-tFire>timeout
+    return _lastCapsuleOpen~=prev
 end
 
 local function withCapsuleZone(ctype)
