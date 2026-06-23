@@ -50,6 +50,8 @@ local L_TABLE = {
         tog_fillBucket="Fill Bucket", tog_hireNoob="Hire Noob",
         tog_factory="Factory", tog_cook="Cook",
         tog_animals="Animals", tog_mutation="Mutation",
+        sec_noobs="👶 Noob Upgrade", tog_autoNoob="👶 Auto Upgrade Noobs",
+        btn_upgradeNoobs="👶 Upgrade Selected Now",
         tog_blaze="🔥 Auto Blaze", tog_runes="🎲 Auto Roll Runes",
         tog_tier="⬆️ Auto Tier", tog_awaken="⭐ Auto Awaken",
         tog_upgradeQuest="Auto Upgrade Quest",
@@ -98,6 +100,8 @@ local L_TABLE = {
         tog_fillBucket="Заполнить ведро", tog_hireNoob="Нанять нуба",
         tog_factory="Фабрика", tog_cook="Готовка",
         tog_animals="Животные", tog_mutation="Мутация",
+        sec_noobs="👶 Прокачка нубов", tog_autoNoob="👶 Авто-прокачка нубов",
+        btn_upgradeNoobs="👶 Прокачать выбранных",
         tog_blaze="🔥 Авто-блейз", tog_runes="🎲 Авто-прокатка рун",
         tog_tier="⬆️ Авто-уровень", tog_awaken="⭐ Авто-пробуждение",
         tog_upgradeQuest="Авто-квест апгрейда",
@@ -190,7 +194,7 @@ local S = {
     wheat=false, deposit=false, blaze=false,
     chest=false, minionCap=false,
     iceFarm=false, waterFarm=false, campfire=false, ashConvert=false,
-    hireNoob=false, fillBucket=false,
+    hireNoob=false, fillBucket=false, autoNoob=false,
     factory=false, cook=false, animals=false, mutation=false,
     mining=false, exchangeOre=false, miningMode="teleport",
     runes=false, tier=false, awaken=false, upgradeQuest=false,
@@ -208,6 +212,7 @@ local selectedIceBtn  = 12
 local iceTeleportWait = 0.15
 local capsuleOpenWait = 2.5
 local selectedOres    = {}
+local selectedNoobs   = {}
 local selectedChest   = "Chest"
 local selectedMinCap  = "Classic"
 local prismEquipPat   = 1
@@ -241,6 +246,7 @@ local function saveSettings()
     for _, k in ipairs(BOOL_KEYS) do if S[k] then on[#on+1] = k end end
     if #on > 0 then lines[#lines+1] = "toggles="..table.concat(on,",") end
     if #selectedRunes > 0 then lines[#lines+1] = "selectedRunes="..table.concat(selectedRunes,",") end
+    if #selectedNoobs > 0 then lines[#lines+1] = "selectedNoobs="..table.concat(selectedNoobs,",") end
     local ores = {}
     for nm, v in pairs(selectedOres) do if v then ores[#ores+1] = nm end end
     if #ores > 0 then lines[#lines+1] = "selectedOres="..table.concat(ores,",") end
@@ -268,6 +274,8 @@ local function loadSettings()
                 for key in v:gmatch("[^,]+") do S[key]=true end
             elseif k=="selectedRunes" and v~="" then
                 selectedRunes={}; for r in v:gmatch("[^,]+") do selectedRunes[#selectedRunes+1]=r end
+            elseif k=="selectedNoobs" and v~="" then
+                selectedNoobs={}; for r in v:gmatch("[^,]+") do selectedNoobs[#selectedNoobs+1]=r end
             elseif k=="selectedOres" and v~="" then
                 selectedOres={}; for r in v:gmatch("[^,]+") do selectedOres[r]=true end
             end
@@ -684,6 +692,9 @@ safeLoop(1, function()
     if S.cook       then fire("Cook")                end
     if S.animals    then fire("Animals")             end
     if S.mutation   then fire("Mutation")            end
+    if S.autoNoob and #selectedNoobs > 0 then
+        for _, nt in ipairs(selectedNoobs) do fire("UpgradeNoobMax", nt) end
+    end
     if S.exchangeOre then fire("ExchangeAllMinerals") end
     if S.blaze or S.upgradeQuest then fire("Blaze") end
     if S.chest      then fire("OpenChest",selectedChest) end
@@ -900,6 +911,27 @@ TabFarm:CreateToggle({Name=L("tog_campfire"),   CurrentValue=S.campfire,   Flag=
 TabFarm:CreateToggle({Name=L("tog_ashConvert"), CurrentValue=S.ashConvert, Flag="ac_", Callback=function(v) S.ashConvert=v; saveSettings() end})
 TabFarm:CreateToggle({Name=L("tog_fillBucket"), CurrentValue=S.fillBucket, Flag="fb_", Callback=function(v) S.fillBucket=v; saveSettings() end})
 TabFarm:CreateToggle({Name=L("tog_hireNoob"),   CurrentValue=S.hireNoob,   Flag="hn_", Callback=function(v) S.hireNoob=v;   saveSettings() end})
+
+TabFarm:CreateSection(L("sec_noobs"))
+TabFarm:CreateDropdown({
+    Name="Noob Types", Flag="noobTypes",
+    Options={"Starter","Explorer","Knight","Fisherman","Cooker","Farmer","Archer","Soldier"},
+    CurrentOption=selectedNoobs, MultipleOptions=true,
+    Callback=function(o) selectedNoobs=o; saveSettings() end,
+})
+TabFarm:CreateToggle({Name=L("tog_autoNoob"), CurrentValue=S.autoNoob, Flag="an2", Callback=function(v) S.autoNoob=v; saveSettings() end})
+TabFarm:CreateButton({Name=L("btn_upgradeNoobs"), Callback=function()
+    if #selectedNoobs == 0 then notify("👶","Select noob types first",nil,3); return end
+    task.spawn(function()
+        for _, nt in ipairs(selectedNoobs) do
+            for i=1,30 do
+                pcall(MR.FireServer, MR, "UpgradeNoobMax", nt)
+                task.wait(0.15)
+            end
+        end
+        notify("👶","Upgrade done!",nil,3)
+    end)
+end})
 
 TabFarm:CreateSection(L("sec_world1"))
 TabFarm:CreateToggle({Name=L("tog_factory"),  CurrentValue=S.factory,  Flag="fac", Callback=function(v) S.factory=v;  saveSettings() end})
