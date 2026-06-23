@@ -42,7 +42,9 @@ end
 local Players = game:GetService("Players")
 local LP      = Players.LocalPlayer
 local GC      = workspace.__GAME_CONTENT
-local MR      = game:GetService("ReplicatedStorage").__Net.MainRemote
+local RS      = game:GetService("ReplicatedStorage")
+local MR      = RS.__Net.MainRemote
+local NET     = RS.__Net
 
 -- ─── ANTI-AFK ─────────────────────────────────────────────────────────────────
 local VirtualUser = game:GetService("VirtualUser")
@@ -231,7 +233,7 @@ local S = {
     factory=false, cook=false, animals=false, mutation=false,
     mining=false, exchangeOre=false, miningMode="teleport",
     runes=false, tier=false, awaken=false, upgradeQuest=false,
-    prismEquip=false, autoCoinFarm=false, autoPrism=false,
+    prismEquip=false, autoCoinFarm=false, autoPrism=false, autoPot=false, autoGuildClaim=false,
     StarterTree=false, TycoonTree=false, FarmTree=false,
     PrismTree=false, IceTree=false, MiningTree=false,
     Ice=false, Fire=false, Blaze=false, Water=false, Oof=false,
@@ -252,6 +254,7 @@ local prismEquipPat   = 1
 local prismThreshold  = 3
 local coinInterval    = 60
 local selectedMilestones = {}
+local selectedPotions = {}
 local patterns        = {nil,nil,nil}
 local minionPatterns  = {nil,nil,nil}
 local manualRuneLuck  = nil
@@ -266,6 +269,7 @@ local BOOL_KEYS = {
     "StarterTree","TycoonTree","FarmTree","PrismTree","IceTree","MiningTree",
     "Ice","Fire","Blaze","Water","Oof","Rebirth","Wood","Planks",
     "Bread","Cash","Coin","HackPoints","Gem",
+    "autoPot","autoGuildClaim",
 }
 local function saveSettings()
     local lines = {
@@ -284,6 +288,7 @@ local function saveSettings()
     if #selectedRunes > 0 then lines[#lines+1] = "selectedRunes="..table.concat(selectedRunes,",") end
     if #selectedNoobs > 0 then lines[#lines+1] = "selectedNoobs="..table.concat(selectedNoobs,",") end
     if #selectedMilestones > 0 then lines[#lines+1] = "selectedMilestones="..table.concat(selectedMilestones,",") end
+    if #selectedPotions   > 0 then lines[#lines+1] = "selectedPotions="..table.concat(selectedPotions,",") end
     local ores = {}
     for nm, v in pairs(selectedOres) do if v then ores[#ores+1] = nm end end
     if #ores > 0 then lines[#lines+1] = "selectedOres="..table.concat(ores,",") end
@@ -316,6 +321,8 @@ local function loadSettings()
                 selectedNoobs={}; for r in v:gmatch("[^,]+") do selectedNoobs[#selectedNoobs+1]=r end
             elseif k=="selectedMilestones" and v~="" then
                 selectedMilestones={}; for r in v:gmatch("[^,]+") do selectedMilestones[#selectedMilestones+1]=r end
+            elseif k=="selectedPotions" and v~="" then
+                selectedPotions={}; for r in v:gmatch("[^,]+") do selectedPotions[#selectedPotions+1]=r end
             elseif k=="selectedOres" and v~="" then
                 selectedOres={}; for r in v:gmatch("[^,]+") do selectedOres[r]=true end
             end
@@ -409,6 +416,31 @@ LP.PlayerGui.ChildAdded:Connect(function(child)
     if child.Name=="CapsuleOpeningDisplayFrame" then child.Enabled=false end
 end)
 
+-- Dynamic potion list from server-replicated folder
+local POTION_NAMES = {}
+pcall(function()
+    local potF = LP.EXTRA.MONETIZATION.POTIONS
+    for _, p in ipairs(potF:GetChildren()) do
+        POTION_NAMES[#POTION_NAMES+1] = p.Name
+    end
+    table.sort(POTION_NAMES)
+end)
+if #POTION_NAMES == 0 then
+    POTION_NAMES = {"2x Rune Luck","2x Rune Speed","2x Rune Bulk"}
+end
+
+-- Capsule session counter (updated by server event)
+local capsuleCount  = 0
+local capsuleLabel  = nil  -- assigned after UI creation
+pcall(function()
+    NET.MinionCapsuleOpened.OnClientEvent:Connect(function(_capType, _minions, _luck, count)
+        capsuleCount = capsuleCount + math.max(tonumber(count) or 1, 1)
+        if capsuleLabel then
+            pcall(capsuleLabel.Set, capsuleLabel, "Opened this session: "..capsuleCount)
+        end
+    end)
+end)
+
 -- Returns CFrames for entering/exiting the capsule zone
 local function capsuleEnterCF(part)
     local p  = part.Position
@@ -424,7 +456,7 @@ local function withCapsuleZone(ctype, fn)
     if not part then fn(); return end
     local origin=hrp.CFrame
     local enterCF = capsuleEnterCF(part)
-    hrp.CFrame = enterCF; task.wait(0.5)
+    hrp.CFrame = enterCF; task.wait(capsuleOpenWait)
     fn()
     hrp.CFrame = origin
 end
@@ -466,17 +498,7 @@ do
     end
 end
 
-local currentTierV = LP.FEATURES.TIER.Tier
-local function getAwakenCost()
-    local wui = LP.PlayerGui:FindFirstChild("WorldUI"); if not wui then return nil end
-    for _, gui in ipairs(wui:GetChildren()) do
-        if gui:IsA("SurfaceGui") then
-            local aw=gui:FindFirstChild("Awaken"); local rq=gui:FindFirstChild("Req")
-            if aw and aw:IsA("TextButton") and rq then return rq:FindFirstChild("Cost") end
-        end
-    end
-end
-local awakenCostV = getAwakenCost()
+-- LP.FEATURES.TIER is read dynamically in updateChances; no static cache needed
 
 -- ─── EQUIPMENT ────────────────────────────────────────────────────────────────
 local SLOTS = {"Necklace","Special","Ring","Geode"}
@@ -779,12 +801,35 @@ safeLoop(3, function()
             fire("SetUpgradeAutomationPaused",ut,false)
         end
     end
-    if S.awaken then
-        if awakenCostV and awakenCostV.Text then
-            local needed  = tonumber(awakenCostV.Text:match("%(#(%d+)%)") or awakenCostV.Text:match("(%d+)"))
-            local current = tonumber(currentTierV and currentTierV.Value) or 0
-            if not needed or current >= needed then fire("AwakenTier") end
-        else fire("AwakenTier") end
+    if S.awaken then fire("AwakenTier") end
+end)
+
+-- Auto-use potions: activate when TimeLeft < 60s and Capacity > 0
+safeLoop(15, function()
+    if not S.autoPot or #selectedPotions == 0 then return end
+    local potF = LP.EXTRA:FindFirstChild("MONETIZATION")
+        and LP.EXTRA.MONETIZATION:FindFirstChild("POTIONS")
+    if not potF then return end
+    for _, name in ipairs(selectedPotions) do
+        local p = potF:FindFirstChild(name)
+        if p then
+            local tl  = p:FindFirstChild("TimeLeft")
+            local cap = p:FindFirstChild("Capacity")
+            local tl_val  = tl  and tonumber(tl.Value)  or 0
+            local cap_val = cap and tonumber(cap.Value) or 0
+            if cap_val > 0 and tl_val < 60 then
+                fire("UsePotion", name, 1)
+            end
+        end
+    end
+end)
+
+-- Auto-claim all available guild weekly rewards
+safeLoop(120, function()
+    if not S.autoGuildClaim then return end
+    local ok, r = pcall(function() return NET.ClaimAllGuildWeeklyRewards:InvokeServer() end)
+    if ok and r and tostring(r)~="false" and tostring(r)~="" then
+        notify("🏛 Guild","Rewards claimed!","check",5)
     end
 end)
 
@@ -937,7 +982,7 @@ local Win = Rayfield:CreateWindow({
     Name            = L("win_title"),
     Icon            = "star",
     LoadingTitle    = "Noob Incremental",
-    LoadingSubtitle = "v7 · Benefit",
+    LoadingSubtitle = "v7.1 · Benefit",
     Theme           = "Default",
     DisableRayfieldPrompts = false,
     DisableBuildWarnings   = true,
@@ -989,6 +1034,12 @@ TabFarm:CreateDropdown({
 TabFarm:CreateToggle({Name=L("tog_autoCap"), CurrentValue=S.minionCap, Flag="acap", Callback=function(v)
     S.minionCap=v; saveSettings()
 end})
+TabFarm:CreateSlider({
+    Name="Zone Detect Wait (s)", Range={0.2,2.5}, Increment=0.05,
+    CurrentValue=capsuleOpenWait, Flag="capWait",
+    Callback=function(v) capsuleOpenWait=v; saveSettings() end,
+})
+capsuleLabel = TabFarm:CreateLabel("Opened this session: 0")
 TabFarm:CreateButton({Name=L("btn_openAll"), Callback=function()
     task.spawn(function()
         local price=CAPSULE_PRICE[selectedMinCap] or 1e9
@@ -1018,6 +1069,35 @@ TabFarm:CreateToggle({Name=L("tog_campfire"),   CurrentValue=S.campfire,   Flag=
 TabFarm:CreateToggle({Name=L("tog_ashConvert"), CurrentValue=S.ashConvert, Flag="ac_", Callback=function(v) S.ashConvert=v; saveSettings() end})
 TabFarm:CreateToggle({Name=L("tog_fillBucket"), CurrentValue=S.fillBucket, Flag="fb_", Callback=function(v) S.fillBucket=v; saveSettings() end})
 TabFarm:CreateToggle({Name=L("tog_hireNoob"),   CurrentValue=S.hireNoob,   Flag="hn_", Callback=function(v) S.hireNoob=v;   saveSettings() end})
+
+TabFarm:CreateSection("🏛 Guild Weekly Rewards")
+TabFarm:CreateToggle({Name="Auto Claim Guild Rewards", CurrentValue=S.autoGuildClaim, Flag="agc",
+    Callback=function(v) S.autoGuildClaim=v; saveSettings() end,
+})
+TabFarm:CreateButton({Name="Claim All Now", Callback=function()
+    task.spawn(function()
+        local ok, r = pcall(function() return NET.ClaimAllGuildWeeklyRewards:InvokeServer() end)
+        notify("🏛 Guild", ok and tostring(r) or "Error", nil, 5)
+    end)
+end})
+TabFarm:CreateButton({Name="Check Rewards Status", Callback=function()
+    task.spawn(function()
+        local ok, data = pcall(function() return NET.GetMyGuildWeeklyRewards:InvokeServer() end)
+        if ok and type(data)=="table" then
+            local pts = tostring(data.Points or "?")
+            local claimable, total = 0, 0
+            if data.Rewards then
+                for _, r in ipairs(data.Rewards) do
+                    total = total + 1
+                    if r.CanClaim and not r.Claimed then claimable = claimable + 1 end
+                end
+            end
+            notify("🏛 Guild", "Pts:"..fmtNum(tonumber(pts) or 0).." | "..claimable.."/"..total.." claimable", nil, 8)
+        else
+            notify("🏛 Guild", "No data", nil, 4)
+        end
+    end)
+end})
 
 TabFarm:CreateSection(L("sec_noobs"))
 TabFarm:CreateDropdown({
@@ -1194,6 +1274,32 @@ TabEquip:CreateDropdown({
     Callback=function(o) selectedMilestones=o; saveSettings() end,
 })
 
+TabEquip:CreateSection("🧪 Auto Potion")
+TabEquip:CreateDropdown({
+    Name="Potions", Flag="potList",
+    Options=POTION_NAMES, CurrentOption=selectedPotions, MultipleOptions=true,
+    Callback=function(o) selectedPotions=o; saveSettings() end,
+})
+TabEquip:CreateToggle({Name="Auto Use Potion (when <60s left)", CurrentValue=S.autoPot, Flag="apt",
+    Callback=function(v) S.autoPot=v; saveSettings() end,
+})
+TabEquip:CreateButton({Name="Show Potion Status", Callback=function()
+    task.spawn(function()
+        local potF = LP.EXTRA:FindFirstChild("MONETIZATION")
+            and LP.EXTRA.MONETIZATION:FindFirstChild("POTIONS")
+        if not potF then notify("🧪","No POTIONS folder",nil,4); return end
+        local lines = {}
+        for _, p in ipairs(potF:GetChildren()) do
+            local tl  = p:FindFirstChild("TimeLeft")
+            local cap = p:FindFirstChild("Capacity")
+            local t = tl  and tonumber(tl.Value)  or 0
+            local c = cap and tonumber(cap.Value) or 0
+            lines[#lines+1] = p.Name..": "..fmtTime(t).." (cap:"..math.floor(c)..")"
+        end
+        notify("🧪 Potions", table.concat(lines,"\n"), nil, 10)
+    end)
+end})
+
 TabEquip:CreateSection(L("sec_autoPrism"))
 TabEquip:CreateToggle({Name=L("tog_autoPrism"), CurrentValue=S.autoPrism, Flag="apr", Callback=function(v) S.autoPrism=v; saveSettings() end})
 
@@ -1265,11 +1371,24 @@ end
 -- ══ CHANCES ════════════════════════════════════════════════════════════════════
 -- Stat display (auto-read from Profile GUI)
 TabChances:CreateSection(L("sec_stats"))
+local prestigeLabel = TabChances:CreateLabel("Prestige: —  |  Awakening: —")
+local potionStatLbl = TabChances:CreateLabel("Potions: —")
+local capsStatLbl   = TabChances:CreateLabel("Capsules opened: 0")
 local rpsLabel  = TabChances:CreateLabel(L("lbl_rps")..L("lbl_loading"))
 local cdLabel   = TabChances:CreateLabel(L("lbl_cd")..L("lbl_loading"))
 local luckLabel = TabChances:CreateLabel("Rune Luck: "..L("lbl_loading"))
 TabChances:CreateLabel(L("lbl_noobNote"))
 TabChances:CreateLabel(L("lbl_prismNote"))
+
+-- Keep capsule stat label in sync
+task.spawn(function()
+    while true do
+        pcall(function()
+            if capsStatLbl then capsStatLbl:Set("Capsules opened: "..capsuleCount) end
+        end)
+        task.wait(5)
+    end
+end)
 
 -- Manual luck override (only needed if auto-read fails)
 TabChances:CreateInput({
@@ -1293,6 +1412,37 @@ end
 
 -- Compute and display ETA for all zones
 local function updateChances()
+    -- Prestige + Awakening display
+    pcall(function()
+        local prestige = LP.FEATURES:FindFirstChild("PrestigeAmount")
+            and tonumber(LP.FEATURES.PrestigeAmount.Value) or 0
+        local tierF = LP.FEATURES:FindFirstChild("TIER")
+        local awaken = tierF and tierF:FindFirstChild("Awakening")
+            and tonumber(tierF.Awakening.Value) or 0
+        local tier   = tierF and tierF:FindFirstChild("Tier")
+            and tonumber(tierF.Tier.Value) or 0
+        if prestigeLabel then
+            prestigeLabel:Set("Prestige: "..prestige.."  |  Tier: "..tier.."  Awakening: "..awaken)
+        end
+    end)
+    -- Potion status display
+    pcall(function()
+        local potF = LP.EXTRA.MONETIZATION.POTIONS
+        local plines = {}
+        for _, p in ipairs(potF:GetChildren()) do
+            local tl  = p:FindFirstChild("TimeLeft")
+            local cap = p:FindFirstChild("Capacity")
+            local t = tl  and tonumber(tl.Value)  or 0
+            local c = cap and tonumber(cap.Value) or 0
+            if t > 0 or c > 0 then
+                plines[#plines+1] = p.Name..": "..fmtTime(t).."(cap "..math.floor(c)..")"
+            end
+        end
+        if potionStatLbl then
+            potionStatLbl:Set(#plines>0 and table.concat(plines," | ") or "No potions active")
+        end
+    end)
+
     local rps, cd, autoLuck, rawRps, rawCd, rawLuck = readProfileStats()
     local luck = manualRuneLuck or autoLuck
 
