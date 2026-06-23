@@ -488,8 +488,8 @@ local function withCapsuleZone(ctype)
     if not (part and hrp) then return end  -- never fire without confirmed zone
     local enterCF=capsuleEnterCF(part)
     capsuleBusy=true
-    holdAndFire(ctype, enterCF, 3)
-    capsuleBusy=false
+    pcall(holdAndFire, ctype, enterCF, 3)
+    capsuleBusy=false  -- always released
 end
 
 local function bulkCapsules(ctype, cond)
@@ -502,8 +502,9 @@ local function bulkCapsules(ctype, cond)
     while cond() do
         local h=getHRP(); if not h then break end
         capsuleBusy=true
-        local ok=holdAndFire(ctype, enterCF, 3)
-        capsuleBusy=false
+        local ok=false
+        pcall(function() ok=holdAndFire(ctype, enterCF, 3) end)
+        capsuleBusy=false  -- always released even if holdAndFire errors
         if not ok then break end
         count=count+1
         task.wait(0.3)
@@ -729,54 +730,56 @@ local _miningOre = nil
 task.spawn(function()
     while true do
         task.wait(0.1)
-        if not (S.mining and next(selectedOres)~=nil) or capsuleBusy then
-            _miningOre = nil
-        else
+        pcall(function()
+            if not (S.mining and next(selectedOres)~=nil) or capsuleBusy then
+                _miningOre = nil; return
+            end
             local folder=getOreFolder(); local hrp=getHRP()
-            if folder and hrp then
-                -- Check if current ore is still alive
-                local alive = _miningOre
-                    and _miningOre.Parent
-                    and getOreHP(_miningOre) ~= 0
-                if not alive then
-                    -- Pick nearest live ore
-                    local best,bd=nil,math.huge
-                    for _,ore in ipairs(folder:GetChildren()) do
-                        if selectedOres[ore.Name] and ore.Parent and getOreHP(ore)~=0 then
-                            local pos=getOrePos(ore)
-                            if pos then
-                                local dd=(pos-hrp.Position).Magnitude
-                                if dd<bd then bd=dd; best=ore end
-                            end
+            if not (folder and hrp) then return end
+            -- Check if current ore is still alive
+            local alive = _miningOre
+                and _miningOre.Parent
+                and getOreHP(_miningOre) ~= 0
+            if not alive then
+                -- Pick nearest live ore
+                local best,bd=nil,math.huge
+                for _,ore in ipairs(folder:GetChildren()) do
+                    if selectedOres[ore.Name] and ore.Parent and getOreHP(ore)~=0 then
+                        local pos=getOrePos(ore)
+                        if pos then
+                            local dd=(pos-hrp.Position).Magnitude
+                            if dd<bd then bd=dd; best=ore end
                         end
                     end
-                    _miningOre=best
                 end
-                -- Teleport/walk to current ore
-                if _miningOre and _miningOre.Parent then
-                    local pos=getOrePos(_miningOre)
-                    if pos then
-                        if S.miningMode=="teleport" then
-                            hrp.CFrame=CFrame.new(pos.X, pos.Y, pos.Z)
-                        else
-                            local hum=getHum(); if hum then hum:MoveTo(pos) end
-                        end
+                _miningOre=best
+            end
+            -- Teleport/walk to current ore
+            if _miningOre and _miningOre.Parent then
+                local pos=getOrePos(_miningOre)
+                if pos then
+                    if S.miningMode=="teleport" then
+                        hrp.CFrame=CFrame.new(pos.X, pos.Y, pos.Z)
+                    else
+                        local hum=getHum(); if hum then hum:MoveTo(pos) end
                     end
                 end
             end
-        end
+        end)
     end
 end)
 
 -- Rune rolling — dedicated loop, no safeLoop to keep precise interval
 task.spawn(function()
     while true do
-        if S.runes and #selectedRunes>0 then
-            for _, rune in ipairs(selectedRunes) do
-                pcall(MR.FireServer,MR,"RollRune",rune)
-            end
-            task.wait(math.max(0.155,runeInterval))
-        else task.wait(0.1) end
+        pcall(function()
+            if S.runes and #selectedRunes>0 then
+                for _, rune in ipairs(selectedRunes) do
+                    pcall(MR.FireServer,MR,"RollRune",rune)
+                end
+                task.wait(math.max(0.155,runeInterval))
+            else task.wait(0.1) end
+        end)
     end
 end)
 
