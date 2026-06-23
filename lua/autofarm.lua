@@ -454,21 +454,23 @@ local function capsuleEnterCF(part)
 end
 
 -- Heartbeat holds HRP in zone every frame — other farm loops can't move character.
--- Timer starts only after FIRST successful snap (HRP confirmed moved).
+-- Waits 350ms from first snap before firing (server needs time to register position).
+-- Retries fire every 400ms if server doesn't confirm — handles slow replication.
 local function holdAndFire(ctype, enterCF, timeout)
     local prev=_lastCapsuleOpen
-    local fired=false
     local firstSnapAt=nil
+    local nextFireAt=nil
     local conn=RunService.Heartbeat:Connect(function()
         local h=getHRP(); if not h then return end
         h.CFrame=enterCF
-        if not firstSnapAt then firstSnapAt=tick() end
-        if not fired and tick()-firstSnapAt>=0.08 then
-            fired=true
+        local now=tick()
+        if not firstSnapAt then firstSnapAt=now; nextFireAt=now+0.35 end
+        if nextFireAt and now>=nextFireAt then
             fire("OpenCapsule", ctype)
+            nextFireAt=now+0.4  -- retry every 400ms if not confirmed
         end
     end)
-    local deadline=tick()+timeout+0.5
+    local deadline=tick()+timeout+1
     while _lastCapsuleOpen==prev and tick()<deadline do task.wait(0.05) end
     conn:Disconnect()
     return _lastCapsuleOpen~=prev
