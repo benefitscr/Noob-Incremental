@@ -825,12 +825,15 @@ safeLoop(15, function()
 end)
 
 -- Auto-claim all available guild weekly rewards
+-- InvokeServer blocks until server responds, so fire it in its own coroutine
 safeLoop(120, function()
     if not S.autoGuildClaim then return end
-    local ok, r = pcall(function() return NET.ClaimAllGuildWeeklyRewards:InvokeServer() end)
-    if ok and r and tostring(r)~="false" and tostring(r)~="" then
-        notify("🏛 Guild","Rewards claimed!","check",5)
-    end
+    task.spawn(function()
+        local ok, r = pcall(function() return NET.ClaimAllGuildWeeklyRewards:InvokeServer() end)
+        if ok and r and tostring(r)~="false" and tostring(r)~="" then
+            notify("🏛 Guild","Rewards claimed!","check",5)
+        end
+    end)
 end)
 
 -- Capsule auto-open runs on its own slow loop so it doesn't block farming
@@ -1082,20 +1085,19 @@ TabFarm:CreateButton({Name="Claim All Now", Callback=function()
 end})
 TabFarm:CreateButton({Name="Check Rewards Status", Callback=function()
     task.spawn(function()
-        local ok, data = pcall(function() return NET.GetMyGuildWeeklyRewards:InvokeServer() end)
-        if ok and type(data)=="table" then
-            local pts = tostring(data.Points or "?")
-            local claimable, total = 0, 0
-            if data.Rewards then
-                for _, r in ipairs(data.Rewards) do
-                    total = total + 1
-                    if r.CanClaim and not r.Claimed then claimable = claimable + 1 end
-                end
+        local ok, data = pcall(function()
+            return NET.GetMyGuildWeeklyRewards:InvokeServer()
+        end)
+        if not ok or type(data)~="table" then notify("🏛 Guild","No data",nil,4); return end
+        local pts = tonumber(data.Points) or 0
+        local claimable, total = 0, 0
+        if type(data.Rewards)=="table" then
+            for _, rw in ipairs(data.Rewards) do
+                total = total + 1
+                if rw.CanClaim and not rw.Claimed then claimable = claimable + 1 end
             end
-            notify("🏛 Guild", "Pts:"..fmtNum(tonumber(pts) or 0).." | "..claimable.."/"..total.." claimable", nil, 8)
-        else
-            notify("🏛 Guild", "No data", nil, 4)
         end
+        notify("🏛 Guild","Pts:"..fmtNum(pts).." | "..claimable.."/"..total.." claimable",nil,8)
     end)
 end})
 
