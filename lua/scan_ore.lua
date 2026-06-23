@@ -1,7 +1,7 @@
--- ═══════════════════ ORE REMOTE TEST ═════════════════════════════════════════
--- Тестирует: можно ли слать OreHit дистанционно (без телепорта)?
--- Тестирует: разные аргументы, несколько руд сразу.
--- Слушает MineralGained для подтверждения.
+-- ═══════════════════ ORE REMOTE TEST v2 ══════════════════════════════════════
+-- T1 подтвердил: MainRemote("OreHit", oreModel) работает без телепорта!
+-- Этот тест: разбирает таблицу MineralGained, тестирует rate limit,
+-- тестирует ALL ores сразу, измеряет прирост минералов.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local LP  = game:GetService("Players").LocalPlayer
@@ -9,184 +9,197 @@ local RS  = game:GetService("ReplicatedStorage")
 local GC  = workspace:WaitForChild("__GAME_CONTENT", 10)
 local NET = RS:WaitForChild("__Net", 10)
 local MR  = NET and NET:WaitForChild("MainRemote", 10)
-local OreHitEv = NET and NET:FindFirstChild("OreHit")
+if not (GC and MR) then warn("[OreTest2] Missing"); return end
 
-if not (GC and MR) then warn("[OreTest] GC/MR not found"); return end
-
--- ── Helpers ──────────────────────────────────────────────────────────────────
 local function fireMR(...) pcall(MR.FireServer, MR, ...) end
-local function fireEv(ev, ...) if ev then pcall(ev.FireServer, ev, ...) end end
 local p = print
 
--- ── Find ores ─────────────────────────────────────────────────────────────────
-local oreF = GC:FindFirstChild("Ores")
-if not oreF then warn("[OreTest] GC/Ores not found"); return end
+-- Mineral tracking — dump full table
+local mineralEv = NET:FindFirstChild("MineralGained")
+local totalFired = 0
+local mineralEvents = {}
 
--- Collect all live ores (max 50)
+local function dumpVal(v, depth)
+    depth = depth or 0
+    local indent = string.rep("  ", depth)
+    local t = type(v)
+    if t == "table" then
+        local lines = {}
+        -- try ipairs first
+        local hasArr = false
+        for i, val in ipairs(v) do
+            hasArr = true
+            table.insert(lines, indent.."  ["..i.."] = "..dumpVal(val, depth+1))
+        end
+        -- then pairs (skip numeric keys already printed)
+        for k, val in pairs(v) do
+            if type(k) ~= "number" then
+                table.insert(lines, indent.."  ["..tostring(k).."] = "..dumpVal(val, depth+1))
+            end
+        end
+        if #lines == 0 then return "{}" end
+        return "{\n"..table.concat(lines, "\n").."\n"..indent.."}"
+    elseif t == "userdata" or t == "Instance" then
+        local ok, cn = pcall(function() return v.ClassName end)
+        local ok2, nm = pcall(function() return v.Name end)
+        return (ok and cn or t)..":"..(ok2 and nm or "?")
+    else
+        return tostring(v)
+    end
+end
+
+if mineralEv then
+    mineralEv.OnClientEvent:Connect(function(...)
+        local args = {...}
+        totalFired = totalFired + 1
+        if totalFired <= 3 then
+            p("[OreTest2] MineralGained #"..totalFired.." — "..#args.." args:")
+            for i, v in ipairs(args) do
+                p("  arg"..i..": "..dumpVal(v))
+            end
+        end
+        table.insert(mineralEvents, {t=tick(), args=args})
+    end)
+end
+
+-- Collect ores
+local oreF = GC:FindFirstChild("Ores")
+if not oreF then warn("[OreTest2] No Ores folder"); return end
 local allOres = {}
 for _, ore in ipairs(oreF:GetChildren()) do
     local rock = ore:FindFirstChild("Rock")
-    if rock and rock:IsA("MeshPart") then
-        allOres[#allOres+1] = { ore=ore, rock=rock, name=ore.Name }
+    if rock then allOres[#allOres+1] = ore end
+end
+p(string.format("[OreTest2] %d ore models found in GC/Ores", #allOres))
+
+local first = allOres[1]
+p("[OreTest2] First ore: "..first.Name)
+
+-- ── TEST A: Inspect MineralGained table ─────────────────────────────────────
+p("\n[OreTest2] ═══ A: Single fire — inspect MineralGained table ═══")
+do
+    local prev = totalFired
+    fireMR("OreHit", first)
+    task.wait(0.5)
+    p("[OreTest2] A: fired 1x → "..( totalFired-prev).." events total")
+end
+
+task.wait(1)
+
+-- ── TEST B: Rate limit — how fast can we fire? ───────────────────────────────
+p("\n[OreTest2] ═══ B: Rate limit test — fire every 100ms for 3s ═══")
+do
+    local prev = totalFired
+    local sends = 0
+    local t0 = tick()
+    while tick()-t0 < 3 do
+        fireMR("OreHit", first)
+        sends = sends + 1
+        task.wait(0.1)
     end
-    if #allOres >= 50 then break end
-end
-p(string.format("[OreTest] Found %d ores. OreHit RemoteEvent: %s",
-    #allOres, OreHitEv and "FOUND ✓" or "NOT FOUND"))
-p("[OreTest] OreHit class: "..(OreHitEv and OreHitEv.ClassName or "N/A"))
-p("[OreTest] MR class: "..(MR and MR.ClassName or "N/A"))
-
--- ── Track MineralGained ───────────────────────────────────────────────────────
-local mineralLog = {}
-local mineralTotal = 0
-local mineralEv = NET:FindFirstChild("MineralGained")
-local oreHitLog  = {}  -- track if OreHit fires server→client too
-if mineralEv then
-    mineralEv.OnClientEvent:Connect(function(minType, amount, ...)
-        mineralTotal = mineralTotal + 1
-        local entry = {t=tick(), typ=tostring(minType), amt=tostring(amount), extra={...}}
-        table.insert(mineralLog, entry)
-        p(string.format("[OreTest] ✓ MineralGained #%d | type=%s amount=%s extra=%s",
-            mineralTotal, entry.typ, entry.amt,
-            #entry.extra>0 and table.concat(entry.extra,",") or "none"))
-    end)
-end
--- Also listen on OreHit as client event (maybe server fires back)
-if OreHitEv then
-    OreHitEv.OnClientEvent:Connect(function(...)
-        local args = {...}
-        p("[OreTest] OreHit CLIENT event fired! args: "..#args)
-        for i,v in ipairs(args) do p("  arg"..i..": "..tostring(v)) end
-    end)
-end
-
--- ── Test helper ───────────────────────────────────────────────────────────────
-local function waitMineral(prevTotal, timeout)
-    local deadline = tick() + timeout
-    while mineralTotal == prevTotal and tick() < deadline do task.wait(0.05) end
-    return mineralTotal > prevTotal
-end
-
-local first = allOres[1]  -- use first ore for single tests
-
-p("\n[OreTest] ═══ TEST 1: OreHit via MainRemote, arg=ore model ═══")
-do
-    local prev = mineralTotal
-    fireMR("OreHit", first.ore)
     task.wait(0.3)
-    p("[OreTest] T1 result: "..(mineralTotal>prev and "✓ MineralGained!" or "✗ no response"))
+    local gained = totalFired - prev
+    p(string.format("[OreTest2] B: sent %d fires → %d MineralGained (ratio %.1f%%)",
+        sends, gained, gained/sends*100))
 end
 
-task.wait(0.5)
+task.wait(1)
 
-p("\n[OreTest] ═══ TEST 2: OreHit via MainRemote, arg=Rock MeshPart ═══")
+-- ── TEST C: Fire ALL ores simultaneously ─────────────────────────────────────
+p(string.format("\n[OreTest2] ═══ C: Fire ALL %d ores simultaneously ═══", #allOres))
 do
-    local prev = mineralTotal
-    fireMR("OreHit", first.rock)
-    task.wait(0.3)
-    p("[OreTest] T2 result: "..(mineralTotal>prev and "✓ MineralGained!" or "✗ no response"))
+    local prev = totalFired
+    local t0 = tick()
+    for _, ore in ipairs(allOres) do
+        fireMR("OreHit", ore)
+    end
+    task.wait(0.8)
+    local gained = totalFired - prev
+    local elapsed = tick()-t0
+    p(string.format("[OreTest2] C: fired %d ores → %d MineralGained in %.2fs",
+        #allOres, gained, elapsed))
 end
 
-task.wait(0.5)
+task.wait(1)
 
-p("\n[OreTest] ═══ TEST 3: OreHit direct RemoteEvent, arg=ore model ═══")
+-- ── TEST D: Fire ALL ores 5x rapid ───────────────────────────────────────────
+p("\n[OreTest2] ═══ D: ALL ores × 5 rapid passes ═══")
 do
-    local prev = mineralTotal
-    fireEv(OreHitEv, first.ore)
-    task.wait(0.3)
-    p("[OreTest] T3 result: "..(mineralTotal>prev and "✓ MineralGained!" or "✗ no response"))
+    local prev = totalFired
+    for pass = 1, 5 do
+        for _, ore in ipairs(allOres) do
+            fireMR("OreHit", ore)
+        end
+        task.wait(0.1)
+    end
+    task.wait(0.8)
+    local gained = totalFired - prev
+    p(string.format("[OreTest2] D: 5 passes × %d ores → %d MineralGained", #allOres, gained))
 end
 
-task.wait(0.5)
+task.wait(1)
 
-p("\n[OreTest] ═══ TEST 4: OreHit direct RemoteEvent, arg=Rock ═══")
-do
-    local prev = mineralTotal
-    fireEv(OreHitEv, first.rock)
-    task.wait(0.3)
-    p("[OreTest] T4 result: "..(mineralTotal>prev and "✓ MineralGained!" or "✗ no response"))
-end
-
-task.wait(0.5)
-
-p("\n[OreTest] ═══ TEST 5: OreHit direct, arg=rock + CFrame ═══")
-do
-    local prev = mineralTotal
-    fireEv(OreHitEv, first.rock, first.rock.CFrame)
-    task.wait(0.3)
-    p("[OreTest] T5 result: "..(mineralTotal>prev and "✓ MineralGained!" or "✗ no response"))
-end
-
-task.wait(0.5)
-
-p("\n[OreTest] ═══ TEST 6: OreHit direct, arg=rock + Vector3 position ═══")
-do
-    local prev = mineralTotal
-    fireEv(OreHitEv, first.rock, first.rock.Position)
-    task.wait(0.3)
-    p("[OreTest] T6 result: "..(mineralTotal>prev and "✓ MineralGained!" or "✗ no response"))
-end
-
-task.wait(0.5)
-
-p("\n[OreTest] ═══ TEST 7: OreHit direct, arg=rock name (string) ═══")
-do
-    local prev = mineralTotal
-    fireEv(OreHitEv, first.name)
-    task.wait(0.3)
-    p("[OreTest] T7 result: "..(mineralTotal>prev and "✓ MineralGained!" or "✗ no response"))
-end
-
-task.wait(0.5)
-
--- If any test worked, try sending to multiple ores simultaneously
-p("\n[OreTest] ═══ TEST 8: Fire OreHit to 5 different ores simultaneously ═══")
-do
-    local prev = mineralTotal
-    -- Figure out which arg format worked from tests above
-    -- Try direct rock approach to all 5 ores at once
-    local count = math.min(5, #allOres)
-    for i = 1, count do
-        local entry = allOres[i]
-        if entry.rock and entry.rock.Parent then
-            fireEv(OreHitEv, entry.rock)
+-- ── TEST E: Measure actual minerals gained from LP.CURRENCIES ────────────────
+p("\n[OreTest2] ═══ E: Check LP currency changes ═══")
+local function getCurrencies()
+    local result = {}
+    local ok, cur = pcall(function() return LP.CURRENCIES end)
+    if ok and cur then
+        for _, c in ipairs(cur:GetChildren()) do
+            local amtF = c:FindFirstChild("Amount")
+            if amtF then
+                local v = amtF:FindFirstChild("1") or amtF:GetChildren()[1]
+                if v then
+                    result[c.Name] = tonumber(v.Value) or 0
+                end
+            end
         end
     end
-    task.wait(0.5)
-    local gained = mineralTotal - prev
-    p(string.format("[OreTest] T8 result: sent to %d ores → MineralGained fired %d times",
-        count, gained))
+    return result
 end
 
+local before = getCurrencies()
+p("[OreTest2] E: Currencies before:")
+for k,v in pairs(before) do p("  "..k..": "..v) end
+
+fireMR("OreHit", first)
 task.wait(0.5)
 
-p("\n[OreTest] ═══ TEST 9: Rapid fire same ore (DPS test) ═══")
-do
-    local prev = mineralTotal
-    local t0 = tick()
-    local sends = 0
-    repeat
-        fireEv(OreHitEv, first.rock)
-        fireMR("OreHit", first.rock)
-        sends = sends + 2
-        task.wait(0.05)
-    until tick() - t0 >= 1
-    task.wait(0.3)
-    local gained = mineralTotal - prev
-    p(string.format("[OreTest] T9: sent %d fires in 1s → MineralGained: %d times", sends, gained))
-end
-
--- ── Summary ───────────────────────────────────────────────────────────────────
-task.wait(0.5)
-p("\n[OreTest] ═══ SUMMARY ═══")
-p("Total MineralGained received: "..mineralTotal)
-p("First ore tested: "..first.name.." @ "..tostring(first.rock.Position))
-if #mineralLog > 0 then
-    p("Sample mineral event args:")
-    local s = mineralLog[1]
-    p("  type="..s.typ.." amount="..s.amt)
-    if #s.extra > 0 then
-        for i,v in ipairs(s.extra) do p("  extra"..i.."="..tostring(v)) end
+local after = getCurrencies()
+p("[OreTest2] E: Currencies after:")
+for k,v in pairs(after) do
+    local diff = v - (before[k] or 0)
+    if diff ~= 0 then
+        p("  "..k..": "..v.." (+"..diff..")")
+    else
+        p("  "..k..": "..v)
     end
 end
-p("[OreTest] Done.")
+
+-- ── TEST F: Check ore respawn — do same ores refill? ─────────────────────────
+p("\n[OreTest2] ═══ F: Ore respawn check ═══")
+do
+    local countBefore = #oreF:GetChildren()
+    fireMR("OreHit", first)  -- try to destroy it
+    task.wait(1)
+    local countAfter = #oreF:GetChildren()
+    p(string.format("[OreTest2] F: ores before=%d after=%d (diff=%d)",
+        countBefore, countAfter, countAfter-countBefore))
+    -- Is first ore still there?
+    local stillThere = first.Parent ~= nil
+    p("[OreTest2] F: first ore still exists: "..tostring(stillThere))
+end
+
+-- ── SUMMARY ──────────────────────────────────────────────────────────────────
+task.wait(0.5)
+p("\n[OreTest2] ═══ SUMMARY ═══")
+p("Total MineralGained events: "..totalFired)
+if #mineralEvents > 0 then
+    local span = mineralEvents[#mineralEvents].t - mineralEvents[1].t
+    p(string.format("Event timespan: %.2fs (%.1f/s avg)",
+        span, span>0 and totalFired/span or 0))
+end
+p("Conclusion:")
+p("  • MainRemote('OreHit', oreModel) = WORKS without teleport")
+p("  • Direct OreHit RemoteEvent = server→client only (read-only)")
+p("[OreTest2] Done.")
