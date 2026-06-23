@@ -1,190 +1,271 @@
--- ORE REMOTE TEST v2 — rate limit, all ores, currency delta
--- MainRemote("OreHit", oreModel) confirmed working. This test expands on it.
+-- ORE SPEED TEST — find fastest possible mining method
+-- Listens to OreHit (server→client) as the real mining confirmation.
+-- Tests: dwell time, distance, chain speed, multi-ore, exchange.
 
 local LP  = game:GetService("Players").LocalPlayer
 local RS  = game:GetService("ReplicatedStorage")
 local GC  = workspace:WaitForChild("__GAME_CONTENT", 10)
 local NET = RS:WaitForChild("__Net", 10)
 local MR  = NET and NET:WaitForChild("MainRemote", 10)
-if not (GC and MR) then warn("[OreTest2] Missing GC or MR"); return end
+if not (GC and MR) then warn("[OreSpd] Missing"); return end
 
 local function fireMR(...) pcall(MR.FireServer, MR, ...) end
 local p = print
 
--- Track minerals
-local mineralEv   = NET:FindFirstChild("MineralGained")
-local totalEvents = 0
-local firstArgs   = nil  -- store first event's args for inspection
+-- ── Track OreHit (server→client = mining confirmed by server) ─────────────
+local OreHitEv    = NET:FindFirstChild("OreHit")
+local MineralEv   = NET:FindFirstChild("MineralGained")
+local oreHits     = 0
+local mineralGots = 0
 
-if mineralEv then
-    mineralEv.OnClientEvent:Connect(function(a1, a2, a3, a4, a5)
-        totalEvents = totalEvents + 1
-        if totalEvents == 1 then
-            firstArgs = {a1, a2, a3, a4, a5}
+if OreHitEv then
+    OreHitEv.OnClientEvent:Connect(function(a1, a2, a3)
+        oreHits = oreHits + 1
+        if oreHits <= 3 then
+            -- dump args to understand structure
+            p("[OreSpd] OreHit args: "..type(a1).." | "..type(a2).." | "..type(a3))
+            if type(a1)=="table" then
+                local cnt=0
+                for k,v in pairs(a1) do
+                    cnt=cnt+1
+                    if cnt<=8 then p("  ["..tostring(k).."]="..tostring(v)) end
+                end
+            end
         end
     end)
 end
+if MineralEv then
+    MineralEv.OnClientEvent:Connect(function() mineralGots=mineralGots+1 end)
+end
+p("[OreSpd] OreHit listener: "..(OreHitEv and "OK" or "NOT FOUND"))
+p("[OreSpd] MineralGained listener: "..(MineralEv and "OK" or "NOT FOUND"))
 
--- Collect ore models
+-- ── Ore helpers ───────────────────────────────────────────────────────────────
 local oreF = GC:FindFirstChild("Ores")
-if not oreF then warn("[OreTest2] No GC/Ores"); return end
+if not oreF then warn("[OreSpd] No GC/Ores"); return end
 
-local ores = {}
-for _, ore in ipairs(oreF:GetChildren()) do
-    if ore:FindFirstChild("Rock") then
-        ores[#ores+1] = ore
+local function getLiveOres()
+    local list = {}
+    for _, ore in ipairs(oreF:GetChildren()) do
+        local rock = ore:FindFirstChild("Rock")
+        if rock and ore.Parent then list[#list+1] = {ore=ore, rock=rock, pos=rock.Position} end
     end
+    return list
 end
-p("[OreTest2] Ores found: " .. #ores)
 
-local first = ores[1]
-p("[OreTest2] Testing with: " .. first.Name)
-task.wait(0.5)
+local function getHRP()
+    local c = LP.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
 
--- ─────────────────────────────────────────────────────────────────────────────
--- A: Inspect MineralGained args (single fire, print what comes back)
-p("\n[OreTest2] A: Single fire → inspect args")
+local function snapTo(pos, yOff)
+    local hrp = getHRP()
+    if hrp then hrp.CFrame = CFrame.new(pos.X, pos.Y+(yOff or 3), pos.Z) end
+end
+
+local function waitHits(prevHits, timeout)
+    local t0=tick()
+    while oreHits==prevHits and tick()-t0<timeout do task.wait(0.02) end
+    return oreHits>prevHits
+end
+
+-- Save start position
+local startPos
 do
-    totalEvents = 0
-    firstArgs = nil
-    fireMR("OreHit", first)
-    task.wait(0.5)
-    p("  Events received: " .. totalEvents)
-    if firstArgs then
-        for i = 1, 5 do
-            local v = firstArgs[i]
-            if v == nil then break end
-            local vt = type(v)
-            p("  arg" .. i .. " type=" .. vt)
-            if vt == "table" then
-                local cnt = 0
-                for k, val in pairs(v) do
-                    cnt = cnt + 1
-                    if cnt <= 15 then
-                        p("    [" .. tostring(k) .. "] = " .. tostring(val))
-                    end
-                end
-                p("    (table has " .. cnt .. " keys)")
-            else
-                p("  arg" .. i .. " value=" .. tostring(v))
-            end
-        end
-    else
-        p("  (no MineralGained received)")
-    end
+    local hrp=getHRP()
+    startPos = hrp and hrp.Position or Vector3.new(0,0,0)
 end
 
+p("\n[OreSpd] Starting. Stand anywhere — script teleports you.")
 task.wait(1)
+local ores = getLiveOres()
+p("[OreSpd] Live ores: "..#ores)
+if #ores==0 then warn("[OreSpd] No ores found"); return end
 
--- ─────────────────────────────────────────────────────────────────────────────
--- B: Rate limit — fire every 50ms for 3s
-p("\n[OreTest2] B: Rate limit — fire 1 ore every 50ms for 3s")
-do
-    local prev = totalEvents
-    local sends = 0
-    local t0 = tick()
-    while tick() - t0 < 3 do
-        fireMR("OreHit", first)
-        sends = sends + 1
-        task.wait(0.05)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- TEST 1: Minimum dwell time — how long must you stand near ore for a hit?
+-- ═══════════════════════════════════════════════════════════════════════════
+p("\n═══ TEST 1: Minimum dwell time ═══")
+local dwellResults = {}
+local dwells = {0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5}
+
+for _, dwell in ipairs(dwells) do
+    ores = getLiveOres()
+    if #ores == 0 then task.wait(2); ores=getLiveOres() end
+    local ore = ores[1]
+    local prev = oreHits
+    snapTo(ore.pos)
+    if dwell > 0 then task.wait(dwell) end
+    -- teleport away immediately
+    snapTo(startPos)
+    task.wait(0.3)
+    local hit = oreHits > prev
+    table.insert(dwellResults, {dwell=dwell, hit=hit})
+    p(string.format("  dwell=%.0fms → %s", dwell*1000, hit and "✓ HIT" or "✗ miss"))
+    task.wait(0.5)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- TEST 2: Distance — how far can you be and still get credit?
+-- ═══════════════════════════════════════════════════════════════════════════
+p("\n═══ TEST 2: Max distance for mining ═══")
+ores = getLiveOres()
+local testOre = ores[1]
+
+local distances = {2, 5, 8, 12, 16, 20, 30}
+for _, dist in ipairs(distances) do
+    local prev = oreHits
+    local pos = testOre.pos
+    local hrp = getHRP()
+    if hrp then
+        -- stand exactly 'dist' studs away horizontally
+        hrp.CFrame = CFrame.new(pos.X + dist, pos.Y + 2, pos.Z)
     end
     task.wait(0.3)
-    local gained = totalEvents - prev
-    p(string.format("  Sent: %d | MineralGained: %d | Accepted: %.0f%%",
-        sends, gained, sends > 0 and gained/sends*100 or 0))
+    snapTo(startPos)
+    task.wait(0.3)
+    local hit = oreHits > prev
+    p(string.format("  dist=%2d studs → %s", dist, hit and "✓ HIT" or "✗ miss"))
+    task.wait(0.3)
 end
 
-task.wait(1)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- TEST 3: Chain speed — teleport ore→ore as fast as possible, count hits/sec
+-- ═══════════════════════════════════════════════════════════════════════════
+p("\n═══ TEST 3: Rapid chain teleport ═══")
+local chainResults = {}
+local chainWaits = {0, 0.05, 0.1, 0.2}
 
--- ─────────────────────────────────────────────────────────────────────────────
--- C: All ores simultaneously (one pass)
-p("\n[OreTest2] C: Fire ALL " .. #ores .. " ores in one pass")
-do
-    local prev = totalEvents
-    for _, ore in ipairs(ores) do
-        fireMR("OreHit", ore)
+for _, waitTime in ipairs(chainWaits) do
+    ores = getLiveOres()
+    local prev = oreHits
+    local sends = 0
+    local t0 = tick()
+    local elapsed = 3  -- test for 3 seconds each
+
+    local idx = 1
+    while tick()-t0 < elapsed do
+        local ore = ores[idx]
+        if ore and ore.ore.Parent then
+            snapTo(ore.pos)
+            if waitTime > 0 then task.wait(waitTime) end
+        end
+        idx = (idx % #ores) + 1
+        if waitTime == 0 then task.wait() end  -- yield at least 1 frame
+        sends = sends + 1
     end
+    task.wait(0.4)
+    local hits = oreHits - prev
+    table.insert(chainResults, {wait=waitTime, hits=hits, sends=sends})
+    p(string.format("  wait=%.0fms | teleports=%d in 3s | hits=%d (%.1f hits/s)",
+        waitTime*1000, sends, hits, hits/elapsed))
+    snapTo(startPos)
     task.wait(0.8)
-    local gained = totalEvents - prev
-    p("  Sent: " .. #ores .. " | MineralGained: " .. gained)
 end
 
-task.wait(1)
-
--- ─────────────────────────────────────────────────────────────────────────────
--- D: All ores × 3 passes rapid
-p("\n[OreTest2] D: ALL ores x3 rapid passes")
-do
-    local prev = totalEvents
-    for pass = 1, 3 do
-        for _, ore in ipairs(ores) do
-            fireMR("OreHit", ore)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- TEST 4: Multi-ore — can you hit 2+ ores at once (nearby cluster)?
+-- ═══════════════════════════════════════════════════════════════════════════
+p("\n═══ TEST 4: Multi-ore proximity (cluster) ═══")
+ores = getLiveOres()
+-- Find 2 ores close together
+local clusterOre1, clusterOre2, clusterDist = nil, nil, math.huge
+for i = 1, #ores do
+    for j = i+1, #ores do
+        local d = (ores[i].pos - ores[j].pos).Magnitude
+        if d < clusterDist then
+            clusterDist = d
+            clusterOre1 = ores[i]
+            clusterOre2 = ores[j]
         end
-        task.wait(0.08)
     end
-    task.wait(0.5)
-    local gained = totalEvents - prev
-    p("  3 passes x " .. #ores .. " ores → MineralGained: " .. gained)
 end
 
-task.wait(1)
+if clusterOre1 and clusterOre2 then
+    p(string.format("  Closest ore pair: %.1f studs apart", clusterDist))
+    -- Stand at midpoint
+    local mid = (clusterOre1.pos + clusterOre2.pos) / 2
+    local prev = oreHits
+    local hrp = getHRP()
+    if hrp then hrp.CFrame = CFrame.new(mid.X, mid.Y+3, mid.Z) end
+    task.wait(0.5)
+    snapTo(startPos)
+    task.wait(0.3)
+    local hits = oreHits - prev
+    p(string.format("  Stand at midpoint 0.5s → %d hits (expected 2 if both register)", hits))
+end
 
--- ─────────────────────────────────────────────────────────────────────────────
--- E: Currency before/after
-p("\n[OreTest2] E: Currency delta (before fire → after)")
-local function readCurrencies()
-    local out = {}
+-- ═══════════════════════════════════════════════════════════════════════════
+-- TEST 5: ExchangeAllMinerals — does it work and what currency does it give?
+-- ═══════════════════════════════════════════════════════════════════════════
+p("\n═══ TEST 5: ExchangeAllMinerals ═══")
+
+local function readKey(name)
     local ok, cur = pcall(function() return LP.CURRENCIES end)
-    if not ok or not cur then return out end
-    for _, c in ipairs(cur:GetChildren()) do
-        local amtF = c:FindFirstChild("Amount")
-        if amtF then
-            local v = amtF:FindFirstChild("1") or amtF:GetChildren()[1]
-            if v then out[c.Name] = tonumber(v.Value) or 0 end
-        end
-    end
-    return out
+    if not ok or not cur then return nil end
+    local f = cur:FindFirstChild(name)
+    local af = f and f:FindFirstChild("Amount")
+    local v = af and (af:FindFirstChild("1") or af:GetChildren()[1])
+    return v and tonumber(v.Value)
 end
 
-do
-    local before = readCurrencies()
-    fireMR("OreHit", first)
-    task.wait(0.5)
-    local after = readCurrencies()
-    local changed = false
-    for k, vAfter in pairs(after) do
-        local vBefore = before[k] or 0
-        local diff = vAfter - vBefore
-        if diff ~= 0 then
-            p(string.format("  %s: %s → %s (DELTA %+.0f)", k, vBefore, vAfter, diff))
-            changed = true
-        end
-    end
-    if not changed then
-        p("  No currency change detected after fire")
-        p("  Currencies tracked: " .. #(function() local n={} for k in pairs(after) do n[#n+1]=k end return n end)())
-    end
+-- Mine a few ores first
+ores = getLiveOres()
+local mined = 0
+for i = 1, math.min(5, #ores) do
+    snapTo(ores[i].pos)
+    task.wait(0.2)
+    mined = mined + 1
+end
+snapTo(startPos)
+task.wait(0.5)
+p("  Mined "..mined.." ores, now testing exchange...")
+
+local cashBefore = readKey("Cash")
+local coinBefore = readKey("Coin")
+fireMR("ExchangeAllMinerals")
+task.wait(0.5)
+local cashAfter = readKey("Cash")
+local coinAfter = readKey("Coin")
+
+p("  ExchangeAllMinerals fired")
+if cashBefore and cashAfter then
+    p(string.format("  Cash: %.2e → %.2e (delta %+.2e)", cashBefore, cashAfter, cashAfter-cashBefore))
+end
+if coinBefore and coinAfter then
+    p(string.format("  Coin: %.2e → %.2e (delta %+.2e)", coinBefore, coinAfter, coinAfter-coinBefore))
 end
 
-task.wait(1)
+-- Also try ExchangeOre (alternative name)
+fireMR("ExchangeOre")
+task.wait(0.3)
+p("  ExchangeOre also fired (check if different)")
 
--- ─────────────────────────────────────────────────────────────────────────────
--- F: Does ore disappear after OreHit?
-p("\n[OreTest2] F: Does ore model disappear from workspace after OreHit?")
-do
-    local alive = first.Parent ~= nil
-    p("  Before fire — ore exists: " .. tostring(alive))
-    fireMR("OreHit", first)
-    task.wait(1)
-    local aliveAfter = first.Parent ~= nil
-    p("  After 1s — ore exists: " .. tostring(aliveAfter))
-    if alive and not aliveAfter then
-        p("  Ore was DESTROYED by OreHit!")
-    elseif alive and aliveAfter then
-        p("  Ore survived — server may respawn or it's always there")
-    end
+-- ═══════════════════════════════════════════════════════════════════════════
+-- SUMMARY
+-- ═══════════════════════════════════════════════════════════════════════════
+task.wait(0.3)
+p("\n═══ SUMMARY ═══")
+p("OreHit events total: "..oreHits)
+p("MineralGained total: "..mineralGots)
+
+p("\nDwell time results:")
+local minDwell = nil
+for _, r in ipairs(dwellResults) do
+    p(string.format("  %.0fms → %s", r.dwell*1000, r.hit and "HIT" or "miss"))
+    if r.hit and minDwell==nil then minDwell=r.dwell end
 end
+p("Minimum dwell: "..(minDwell and (minDwell*1000).."ms" or "unknown"))
 
--- ─────────────────────────────────────────────────────────────────────────────
-p("\n[OreTest2] SUMMARY: Total MineralGained: " .. totalEvents)
-p("[OreTest2] Done.")
+p("\nChain speed results:")
+local bestHPS = 0
+for _, r in ipairs(chainResults) do
+    local hps = r.hits/3
+    if hps > bestHPS then bestHPS = hps end
+    p(string.format("  %.0fms wait → %.1f hits/s", r.wait*1000, hps))
+end
+p("Best: "..string.format("%.1f hits/s", bestHPS))
+
+-- Teleport back
+snapTo(startPos)
+p("\n[OreSpd] Done. Teleported back to start.")
