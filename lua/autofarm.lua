@@ -1289,33 +1289,40 @@ task.spawn(function()
         corner.CornerRadius = UDim.new(0, 10)
         corner.Parent = btn
 
-        -- Toggle Fluent window on tap
-        btn.MouseButton1Click:Connect(function()
-            mainFrame.Visible = not mainFrame.Visible
-            btn.Text = mainFrame.Visible and "☰" or "▶"
-        end)
+        -- Tap + drag support (MouseButton1Click unreliable on mobile)
+        local dragging, dragMoved, dragStart, startPos = false, false, nil, nil
+        local TAP_THRESH = 12  -- pixels of movement before it counts as drag
 
-        -- Drag support
-        local dragging, dragStart, startPos = false, nil, nil
         btn.InputBegan:Connect(function(inp)
             if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then
                 dragging  = true
+                dragMoved = false
                 dragStart = inp.Position
                 startPos  = btn.Position
             end
         end)
         btn.InputChanged:Connect(function(inp)
-            if dragging and (inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseMovement) then
+            if not dragging then return end
+            if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseMovement then
                 local delta = inp.Position - dragStart
-                btn.Position = UDim2.new(
-                    startPos.X.Scale, startPos.X.Offset + delta.X,
-                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
-                )
+                if delta.Magnitude > TAP_THRESH then
+                    dragMoved = true
+                    btn.Position = UDim2.new(
+                        startPos.X.Scale, startPos.X.Offset + delta.X,
+                        startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                    )
+                end
             end
         end)
         btn.InputEnded:Connect(function(inp)
             if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then
-                dragging = false
+                if not dragMoved then
+                    -- tap (not drag) → toggle window
+                    mainFrame.Visible = not mainFrame.Visible
+                    btn.Text = mainFrame.Visible and "☰" or "▶"
+                end
+                dragging  = false
+                dragMoved = false
             end
         end)
     end)
