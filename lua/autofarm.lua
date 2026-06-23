@@ -307,10 +307,13 @@ pcall(function()
 end)
 if #POTION_NAMES==0 then POTION_NAMES={"2x Rune Luck","2x Rune Speed","2x Rune Bulk"} end
 
--- Capsule opened event counter
+-- Capsule opened event — server fires this when it detects player in zone
+-- Track timestamp so zone-hold loop knows when open was confirmed
+local _lastCapsuleOpen = 0
 pcall(function()
     NET.MinionCapsuleOpened.OnClientEvent:Connect(function(_,_,_,count)
         capsuleCount=capsuleCount+math.max(tonumber(count) or 1,1)
+        _lastCapsuleOpen=tick()
     end)
 end)
 
@@ -431,45 +434,34 @@ local function getOrePos(ore)
     return p and p.Position
 end
 
--- Capsule zone: CFrame to enter/exit
+-- CFrame at center of TouchPart — most reliable position for server to detect
 local function capsuleEnterCF(part)
-    local p=part.Position; local sz=part.Size
-    local y=p.Y-sz.Y/2+3
-    return CFrame.new(p.X,y,p.Z), CFrame.new(p.X+sz.X+8,y,p.Z)
+    local p=part.Position
+    return CFrame.new(p.X, p.Y, p.Z)
 end
 
--- Re-snap loop: overwrite HRP position every Heartbeat for ~N ticks so server
--- definitely sees us inside the zone trigger, then fire and release immediately.
-local SNAP_TICKS = 6   -- ~6 physics frames ≈ 96ms at 60fps; enough for server
-local function snapAndFire(enterCF, hrp, fn)
-    -- Hold position for SNAP_TICKS Heartbeat frames
-    local conn; local done = false
-    local ticks = 0
-    conn = RunService.Heartbeat:Connect(function()
-        if done then conn:Disconnect(); return end
-        hrp.CFrame = enterCF
-        ticks = ticks + 1
-        if ticks >= SNAP_TICKS then
-            done = true
-            fn()           -- fire while still in zone (server just saw us here)
-        end
-    end)
-    -- Wait for Heartbeat loop to finish (≈ SNAP_TICKS frames)
-    local deadline = tick() + 0.5
-    while not done and tick() < deadline do task.wait() end
-    conn:Disconnect()
+-- Snap into zone + fire every 0.1s until server confirms via MinionCapsuleOpened
+-- Server needs: player inside zone AND explicit fire. Both together = reliable open.
+local function holdAndFire(ctype, enterCF, hrp, timeout)
+    local t0=tick()
+    local prev=_lastCapsuleOpen
+    repeat
+        hrp.CFrame=enterCF          -- stay inside TouchPart
+        fire("OpenCapsule", ctype)  -- signal server to open
+        task.wait(0.1)
+    until _lastCapsuleOpen~=prev or tick()-t0>timeout
+    return _lastCapsuleOpen~=prev   -- true=confirmed, false=timeout
 end
 
-local function withCapsuleZone(ctype, fn)
+local function withCapsuleZone(ctype)
     local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
-    if not (part and hrp) then fn(); return end
+    if not (part and hrp) then fire("OpenCapsule",ctype); return end
     local enterCF=capsuleEnterCF(part)
     capsuleBusy=true
-    snapAndFire(enterCF, hrp, fn)
-    capsuleBusy=false   -- release; character resumes teleporting immediately
+    holdAndFire(ctype, enterCF, hrp, 3)
+    capsuleBusy=false
 end
 
--- Open as many capsules as cond() allows
 local function bulkCapsules(ctype, cond)
     local timeout=tick()+5
     while capsuleBusy and tick()<timeout do task.wait(0.1) end
@@ -480,10 +472,11 @@ local function bulkCapsules(ctype, cond)
     while cond() do
         local h=getHRP(); if not h then break end
         capsuleBusy=true
-        snapAndFire(enterCF, h, function() fire("OpenCapsule",ctype) end)
+        local ok=holdAndFire(ctype, enterCF, h, 3)
         capsuleBusy=false
+        if not ok then break end
         count=count+1
-        task.wait(0.5)   -- capsule animation / server cooldown
+        task.wait(0.3)
     end
     return count
 end
