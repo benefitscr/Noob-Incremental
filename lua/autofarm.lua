@@ -659,12 +659,13 @@ safeLoop(15, function()
     local potF=LP.EXTRA:FindFirstChild("MONETIZATION") and LP.EXTRA.MONETIZATION:FindFirstChild("POTIONS")
     if not potF then return end
     for _, name in ipairs(selectedPotions) do
-        local p=potF:FindFirstChild(name); if not p then goto pot_next end
-        local tl=p:FindFirstChild("TimeLeft"); local cap=p:FindFirstChild("Capacity")
-        if (cap and tonumber(cap.Value) or 0)>0 and (tl and tonumber(tl.Value) or 0)<60 then
-            fire("UsePotion",name,1)
+        local p=potF:FindFirstChild(name)
+        if p then
+            local tl=p:FindFirstChild("TimeLeft"); local cap=p:FindFirstChild("Capacity")
+            if (cap and tonumber(cap.Value) or 0)>0 and (tl and tonumber(tl.Value) or 0)<60 then
+                fire("UsePotion",name,1)
+            end
         end
-        ::pot_next::
     end
 end)
 
@@ -1059,31 +1060,32 @@ local function updateChances()
     cdPara:Set(  {Title="⏱ CD",   Content=(cd   and string.format("%.3fs",cd)  or "?").."  (raw: "..(rawCd  or "?")..")"})
     luckPara:Set({Title="🍀 Luck", Content=(luck and fmtNum(luck)              or "? — enter above").."  (raw: "..(rawLuck or "?")..")"})
     for _, zone in ipairs(RUNE_ZONES) do
-        local para=zoneParagraphs[zone.name]; if not para then goto zone_next end
-        local invF=nil
-        pcall(function() invF=LP.FEATURES.RUNES.INVENTORY:FindFirstChild(zone.invKey) end)
-        local lines={}
-        for _, rune in ipairs(zone.runes) do
-            local owned=0
-            if invF then
-                local rv=invF:FindFirstChild(rune.n)
-                    or (rune.n=="Exploit"        and invF:FindFirstChild("Expliot"))
-                    or (rune.n=="Ultimate Shard" and invF:FindFirstChild("UltimateShard"))
-                if rv then local ok,v2=pcall(function() return rv.Value end); if ok then owned=tonumber(v2) or 0 end end
+        local para=zoneParagraphs[zone.name]
+        if para then
+            local invF=nil
+            pcall(function() invF=LP.FEATURES.RUNES.INVENTORY:FindFirstChild(zone.invKey) end)
+            local lines={}
+            for _, rune in ipairs(zone.runes) do
+                local owned=0
+                if invF then
+                    local rv=invF:FindFirstChild(rune.n)
+                        or (rune.n=="Exploit"        and invF:FindFirstChild("Expliot"))
+                        or (rune.n=="Ultimate Shard" and invF:FindFirstChild("UltimateShard"))
+                    if rv then local ok,v2=pcall(function() return rv.Value end); if ok then owned=tonumber(v2) or 0 end end
+                end
+                local eta="?"
+                if rps and rps>0 then
+                    local power
+                    if zone.special then power=rps
+                    elseif rune.cl=="Noobinial" then power=rps
+                    else if luck and luck>0 then power=rps*luck end end
+                    eta=power and fmtTime(rune.c/power) or "need luck"
+                end
+                lines[#lines+1]=(rune.cl=="Noobinial" and "★ " or "  ")
+                    ..rune.n..(owned>0 and " ["..owned.."]" or "").."  →  "..eta
             end
-            local eta="?"
-            if rps and rps>0 then
-                local power
-                if zone.special then power=rps
-                elseif rune.cl=="Noobinial" then power=rps
-                else if luck and luck>0 then power=rps*luck end end
-                eta=power and fmtTime(rune.c/power) or "need luck"
-            end
-            lines[#lines+1]=(rune.cl=="Noobinial" and "★ " or "  ")
-                ..rune.n..(owned>0 and " ["..owned.."]" or "").."  →  "..eta
+            para:Set({Title=zone.name,Content=table.concat(lines,"\n")})
         end
-        para:Set({Title=zone.name,Content=table.concat(lines,"\n")})
-        ::zone_next::
     end
 end
 
