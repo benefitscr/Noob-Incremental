@@ -18,7 +18,8 @@ local NET = RS.__Net
 
 local function fire(...) pcall(MR.FireServer, MR, ...) end
 local function rf(name, ...)
-    local ok, r = pcall(function() return NET[name]:InvokeServer(...) end)
+    local args = {...}
+    local ok, r = pcall(function() return NET[name]:InvokeServer(table.unpack(args)) end)
     return ok, r
 end
 
