@@ -7,7 +7,7 @@ local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield", true))(
 local _rn = Rayfield.Notify
 Rayfield.Notify = function(self, t)
     if t then t.Image = nil end
-    task.spawn(function() pcall(_rn, self, t) end)
+    pcall(_rn, self, t)
 end
 
 -- ─── SERVICES ─────────────────────────────────────────────────────────────────
@@ -178,12 +178,9 @@ local function getHum()  local c=getChar(); return c and c:FindFirstChild("Human
 local function fire(...) pcall(MR.FireServer, MR, ...) end
 local function cdet(d)   pcall(fireclickdetector, d) end
 local function notify(title, content, _icon, dur)
-    task.spawn(function()
-        pcall(Rayfield.Notify, Rayfield, {
-            Title=title, Content=content, Duration=dur or 4,
-            Image=4483362458,
-        })
-    end)
+    pcall(Rayfield.Notify, Rayfield, {
+        Title=title, Content=content, Duration=dur or 4,
+    })
 end
 local function safeLoop(interval, fn)
     task.spawn(function() while true do pcall(fn); task.wait(interval) end end)
