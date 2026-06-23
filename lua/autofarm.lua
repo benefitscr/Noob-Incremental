@@ -446,10 +446,11 @@ local function getOreHP(ore)
     return cur
 end
 
--- CFrame at center of TouchPart — most reliable position for server to detect
+-- Snap BELOW center of TouchPart — puts HRP inside the lower half of the zone
+-- Center is too high if physics pushes character up; -3 keeps feet inside zone
 local function capsuleEnterCF(part)
     local p=part.Position
-    return CFrame.new(p.X, p.Y, p.Z)
+    return CFrame.new(p.X, p.Y - 3, p.Z)
 end
 
 -- Test result: server needs ≥50ms in zone before accepting OpenCapsule fire.
@@ -737,7 +738,7 @@ task.spawn(function()
                     local pos=getOrePos(_miningOre)
                     if pos then
                         if S.miningMode=="teleport" then
-                            hrp.CFrame=CFrame.new(pos.X, pos.Y+3, pos.Z)
+                            hrp.CFrame=CFrame.new(pos.X, pos.Y, pos.Z)
                         else
                             local hum=getHum(); if hum then hum:MoveTo(pos) end
                         end
