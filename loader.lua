@@ -68,7 +68,7 @@ Tab:CreateButton({ Name=L("act"), Callback=function()
     local sid = d.sessionId
     status:Set("•  "..L("loading"))
     task.spawn(function()
-        while true do task.wait(60)
+        while true do task.wait(30)
             pcall(game.HttpGet, game, API.."/api/heartbeat?sid="..(sid or ""), true)
         end
     end)
