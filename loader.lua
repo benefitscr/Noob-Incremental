@@ -3,6 +3,7 @@ local Http = game:GetService("HttpService")
 local LP   = game:GetService("Players").LocalPlayer
 
 local API  = "https://gta6free.app"
+local SRC  = "https://raw.githubusercontent.com/benefitscr/Noob-Incremental/main/autofarm_luraph.lua"
 local DISC = "https://discord.gg/AXSnKF5R"
 
 local LANG = "en"
@@ -21,6 +22,12 @@ local TX = {
            fail="Неверный ключ", srv="Ошибка сервера", loading="Загружаем...", dlf="Ошибка загрузки" },
 }
 local function L(k) return (TX[LANG] and TX[LANG][k]) or TX.en[k] or k end
+
+local src, srcErr
+task.spawn(function()
+    local ok, r = pcall(game.HttpGet, game, SRC, true)
+    if ok then src=r else srcErr=r end
+end)
 
 local Win = Rayfield:CreateWindow({
     Name="Noob Incremental", Icon="gamepad-2",
@@ -60,20 +67,15 @@ Tab:CreateButton({ Name=L("act"), Callback=function()
 
     local sid = d.sessionId
     status:Set("•  "..L("loading"))
-
-    -- Heartbeat loop
     task.spawn(function()
         while true do task.wait(60)
             pcall(game.HttpGet, game, API.."/api/heartbeat?sid="..(sid or ""), true)
         end
     end)
 
-    -- Script download gated behind valid session — no GitHub access
-    local ok3, src = pcall(game.HttpGet, game, API.."/api/script?sid="..sid, true)
-    if not ok3 or not src or src:sub(1,2)=="--" then
-        status:Set("✗  "..L("dlf"))
-        busy=false; return
-    end
+    local w=0
+    while not src and not srcErr and w<30 do task.wait(0.5); w=w+0.5 end
+    if not src then status:Set("✗  "..L("dlf")); busy=false; return end
 
     status:Set("✓  "..L("ok")..LP.Name)
     task.wait(0.8)
