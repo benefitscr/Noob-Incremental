@@ -29,7 +29,7 @@ local L_TABLE = {
     en = {
         win_title="Noob Incremental", win_sub="v7 · Benefit",
         tab_farm="Farm", tab_combat="Runes", tab_mine="Mine",
-        tab_upgrades="Upgrades", tab_equip="Equipment",
+        tab_upgrades="Upgrades",
         tab_tele="Teleport", tab_chances="Chances",
         sec_wheat="🌾 Wheat", sec_chests="📦 Chests", sec_capsules="🎱 Capsules",
         sec_world2="❄️ World 2", sec_world1="🏭 World 1",
@@ -64,6 +64,11 @@ local L_TABLE = {
         lbl_runeInterval="Roll Interval (s)",
         lbl_iceTeleWait="Ice Teleport Wait (s)",
         lbl_prismTrigger="Trigger (sec before payout)",
+        tab_equip="Equip",
+        sec_coinFarm="🪙 Coin Farm", sec_autoPrism="⭐ Auto Prism",
+        sec_equipRestore="⚙️ Restore Zone",
+        tog_autoCoinFarm="🪙 Auto Coin Farm", tog_autoPrism="⭐ Auto Prism Equip",
+        lbl_coinInterval="Exchange Interval (s)",
         lbl_runeLuck="Rune Luck (manual input)",
         inp_runeLuck="e.g. 1000000 or 1e6",
         lbl_noobNote="★ Noobinial class: no luck needed",
@@ -79,7 +84,7 @@ local L_TABLE = {
     ru = {
         win_title="Noob Incremental", win_sub="v7 · Benefit",
         tab_farm="Фарм", tab_combat="Руны", tab_mine="Шахта",
-        tab_upgrades="Апгрейды", tab_equip="Снаряжение",
+        tab_upgrades="Апгрейды",
         tab_tele="Телепорт", tab_chances="Шансы",
         sec_wheat="🌾 Пшеница", sec_chests="📦 Сундуки", sec_capsules="🎱 Капсулы",
         sec_world2="❄️ Мир 2", sec_world1="🏭 Мир 1",
@@ -114,6 +119,11 @@ local L_TABLE = {
         lbl_runeInterval="Интервал броска (с)",
         lbl_iceTeleWait="Ожидание телепорта (с)",
         lbl_prismTrigger="Триггер (сек до выплаты)",
+        tab_equip="Экип",
+        sec_coinFarm="🪙 Монетный фарм", sec_autoPrism="⭐ Авто призма",
+        sec_equipRestore="⚙️ Зона восстановления",
+        tog_autoCoinFarm="🪙 Авто монетный фарм", tog_autoPrism="⭐ Авто призма экип",
+        lbl_coinInterval="Интервал обмена (с)",
         lbl_runeLuck="Рунная удача (вручную)",
         inp_runeLuck="напр. 1000000 или 1e6",
         lbl_noobNote="★ Нубиниальные руны: удача не нужна",
@@ -195,7 +205,7 @@ local S = {
     factory=false, cook=false, animals=false, mutation=false,
     mining=false, exchangeOre=false, miningMode="teleport",
     runes=false, tier=false, awaken=false, upgradeQuest=false,
-    prismEquip=false,
+    prismEquip=false, autoCoinFarm=false, autoPrism=false,
     StarterTree=false, TycoonTree=false, FarmTree=false,
     PrismTree=false, IceTree=false, MiningTree=false,
     Ice=false, Fire=false, Blaze=false, Water=false, Oof=false,
@@ -214,6 +224,9 @@ local selectedChest   = "Chest"
 local selectedMinCap  = "Classic"
 local prismEquipPat   = 1
 local prismThreshold  = 3
+local coinInterval    = 60
+local selectedMilestones = {}
+local restoreZone     = "Basic"
 local patterns        = {nil,nil,nil}
 local minionPatterns  = {nil,nil,nil}
 local manualRuneLuck  = nil
@@ -234,6 +247,7 @@ local function saveSettings()
         "runeInterval="..runeInterval, "rollCount="..rollCount, "selectedChest="..selectedChest,
         "selectedMinCap="..selectedMinCap, "prismThreshold="..prismThreshold,
         "prismEquipPat="..prismEquipPat, "miningMode="..S.miningMode,
+        "coinInterval="..coinInterval, "restoreZone="..restoreZone,
         "selectedIceBtn="..selectedIceBtn, "iceTeleportWait="..iceTeleportWait,
         "capsuleOpenWait="..capsuleOpenWait,
         "lang="..LANG,
@@ -244,6 +258,7 @@ local function saveSettings()
     if #on > 0 then lines[#lines+1] = "toggles="..table.concat(on,",") end
     if #selectedRunes > 0 then lines[#lines+1] = "selectedRunes="..table.concat(selectedRunes,",") end
     if #selectedNoobs > 0 then lines[#lines+1] = "selectedNoobs="..table.concat(selectedNoobs,",") end
+    if #selectedMilestones > 0 then lines[#lines+1] = "selectedMilestones="..table.concat(selectedMilestones,",") end
     local ores = {}
     for nm, v in pairs(selectedOres) do if v then ores[#ores+1] = nm end end
     if #ores > 0 then lines[#lines+1] = "selectedOres="..table.concat(ores,",") end
@@ -261,6 +276,8 @@ local function loadSettings()
             elseif k=="selectedMinCap"  then selectedMinCap  = v or "Classic"
             elseif k=="prismThreshold"  then prismThreshold  = tonumber(v) or 3
             elseif k=="prismEquipPat"   then prismEquipPat   = tonumber(v) or 1
+            elseif k=="coinInterval"    then coinInterval    = tonumber(v) or 60
+            elseif k=="restoreZone"     then restoreZone     = v or "Basic"
             elseif k=="miningMode"      then S.miningMode    = v or "teleport"
             elseif k=="selectedIceBtn"  then selectedIceBtn  = tonumber(v) or 12
             elseif k=="iceTeleportWait" then iceTeleportWait = tonumber(v) or 0.15
@@ -273,6 +290,8 @@ local function loadSettings()
                 selectedRunes={}; for r in v:gmatch("[^,]+") do selectedRunes[#selectedRunes+1]=r end
             elseif k=="selectedNoobs" and v~="" then
                 selectedNoobs={}; for r in v:gmatch("[^,]+") do selectedNoobs[#selectedNoobs+1]=r end
+            elseif k=="selectedMilestones" and v~="" then
+                selectedMilestones={}; for r in v:gmatch("[^,]+") do selectedMilestones[#selectedMilestones+1]=r end
             elseif k=="selectedOres" and v~="" then
                 selectedOres={}; for r in v:gmatch("[^,]+") do selectedOres[r]=true end
             end
@@ -777,49 +796,48 @@ task.spawn(function()
     end
 end)
 
+-- ─── AUTO PRISM ───────────────────────────────────────────────────────────────
 local prismArmed = false
-local prismSaved = {equip=nil, minions=nil}
 safeLoop(0.5, function()
-    if not (S.prismEquip and prismCooldownV) then return end
-    local secs=tonumber(prismCooldownV.Value)
-    if secs and secs<=prismThreshold and not prismArmed then
-        prismArmed=true
-        -- Save current equipment + minion state before swapping
-        prismSaved.equip   = readEquipped()
-        prismSaved.minions = readMinionEquipped()
-        local letter=({"A","B","C"})[prismEquipPat]
-        task.spawn(function()
-            applyPattern(prismEquipPat)
-            local mp=minionPatterns[prismEquipPat]
-            if mp and #mp>0 then
-                unequipAllMinions(); task.wait(0.2)
-                for _, id in ipairs(mp) do equipMinion(id); task.wait(0.1) end
-            end
-        end)
-        notify(L("notif_prismReady")..letter, "~"..secs.."s","zap")
-    elseif secs and secs>prismThreshold and prismArmed then
-        -- Prism just fired — restore previous equipment + minions
-        prismArmed=false
-        local savedEquip   = prismSaved.equip
-        local savedMinions = prismSaved.minions
-        prismSaved={equip=nil, minions=nil}
-        task.spawn(function()
+    if not (S.autoPrism and prismCooldownV) then return end
+    local secs = tonumber(prismCooldownV.Value)
+    if secs and secs <= 3 and not prismArmed then
+        prismArmed = true
+        fire("EquipBestMinions", "Prism")
+        fire("EquipBest", "Prism")
+        notify("⭐ Prism", "Equipping for Prism — "..math.floor(secs).."s", nil, 4)
+        task.wait(secs + 0.8)
+        fire("EquipBest", restoreZone)
+        fire("EquipBestMinions", restoreZone)
+        notify("⭐ Prism", "Restored → "..restoreZone, nil, 3)
+        task.wait(5)
+        prismArmed = false
+    end
+end)
+
+-- ─── COIN FARM ────────────────────────────────────────────────────────────────
+local coinArmed = false
+task.spawn(function()
+    while true do
+        if S.autoCoinFarm and not coinArmed then
+            coinArmed = true
+            fire("EquipBest", "Coin")
+            fire("EquipBestMinions", "Coin")
+            task.wait(1)
+            fire("ExchangeAllAnimalProducts")
             task.wait(0.5)
-            if savedEquip then
-                for _, sn in ipairs(SLOTS) do
-                    local ids=savedEquip[sn]
-                    if ids and #ids>0 then
-                        unequipSlot(sn); task.wait(0.15)
-                        for _, id in ipairs(ids) do equipItem(sn,tostring(id)); task.wait(0.1) end
-                    end
-                end
+            for _, m in ipairs(selectedMilestones) do
+                fire("DepositCoinMilestone", m)
+                task.wait(0.2)
             end
-            if savedMinions and #savedMinions>0 then
-                unequipAllMinions(); task.wait(0.2)
-                for _, id in ipairs(savedMinions) do equipMinion(id); task.wait(0.1) end
-            end
-        end)
-        notify("Prism","Снаряжение восстановлено","check")
+            task.wait(1)
+            fire("EquipBest", restoreZone)
+            fire("EquipBestMinions", restoreZone)
+            coinArmed = false
+            task.wait(coinInterval)
+        else
+            task.wait(2)
+        end
     end
 end)
 
@@ -840,6 +858,7 @@ local TabFarm    = Win:CreateTab(L("tab_farm"),     "wheat")
 local TabCombat  = Win:CreateTab(L("tab_combat"),   "scroll")
 local TabMine    = Win:CreateTab(L("tab_mine"),     "pickaxe")
 local TabUpgrade = Win:CreateTab(L("tab_upgrades"), "trending-up")
+local TabEquip   = Win:CreateTab(L("tab_equip"),    "star")
 local TabTele    = Win:CreateTab(L("tab_tele"),     "map-pin")
 local TabChances = Win:CreateTab(L("tab_chances"),  "percent")
 
@@ -1069,6 +1088,32 @@ for _, tn in ipairs(TREE_NAMES) do
         Callback=function(v) S[tnKey]=v; saveSettings() end,
     })
 end
+
+-- ══ EQUIP ══
+TabEquip:CreateSection(L("sec_coinFarm"))
+TabEquip:CreateToggle({Name=L("tog_autoCoinFarm"), CurrentValue=S.autoCoinFarm, Flag="acf", Callback=function(v) S.autoCoinFarm=v; saveSettings() end})
+TabEquip:CreateSlider({
+    Name=L("lbl_coinInterval"), Range={10,300}, Increment=10,
+    CurrentValue=coinInterval, Flag="coinInt",
+    Callback=function(v) coinInterval=v; saveSettings() end,
+})
+TabEquip:CreateDropdown({
+    Name="Milestones", Flag="milestones",
+    Options={"Milk","Egg","RuneLuck","RuneSpeed","RuneBulk","TierLuck"},
+    CurrentOption=selectedMilestones, MultipleOptions=true,
+    Callback=function(o) selectedMilestones=o; saveSettings() end,
+})
+
+TabEquip:CreateSection(L("sec_autoPrism"))
+TabEquip:CreateToggle({Name=L("tog_autoPrism"), CurrentValue=S.autoPrism, Flag="apr", Callback=function(v) S.autoPrism=v; saveSettings() end})
+
+TabEquip:CreateSection(L("sec_equipRestore"))
+TabEquip:CreateDropdown({
+    Name="Restore Zone", Flag="restoreZone",
+    Options={"Basic","Super","Advanced","Cosmic Prism","Hacker","Snowy","Deepcore","Coin"},
+    CurrentOption=restoreZone, MultipleOptions=false,
+    Callback=function(o) restoreZone=o; saveSettings() end,
+})
 
 -- ══ TELEPORT ══════════════════════════════════════════════════════════════════
 TabTele:CreateSection(L("sec_capsuleZones"))
