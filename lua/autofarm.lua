@@ -450,15 +450,18 @@ local function capsuleEnterCF(part)
            CFrame.new(p.X + sz.X + 8, enterY, p.Z)
 end
 
+local capsuleBusy = false
 local function withCapsuleZone(ctype, fn)
     local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
     if not hrp then fn(); return end
     if not part then fn(); return end
     local origin=hrp.CFrame
     local enterCF = capsuleEnterCF(part)
+    capsuleBusy = true
     hrp.CFrame = enterCF; task.wait(capsuleOpenWait)
     fn()
     hrp.CFrame = origin
+    capsuleBusy = false
 end
 
 -- Bulk: re-entry loop while cond() returns true, returns opened count
@@ -875,7 +878,7 @@ task.spawn(function()
 end)
 
 safeLoop(2, function()
-    if not S.iceFarm then return end
+    if not S.iceFarm or capsuleBusy then return end
     local d=ICE_BTN[selectedIceBtn]
     if not (d and d.part) then fire("Ice",selectedIceBtn); return end
     local hrp=getHRP(); if not hrp then return end
@@ -898,12 +901,9 @@ safeLoop(0.8, function()
             end
         end
     end
-    if best then
-        if S.miningMode=="teleport" and not S.runes then
-            hrp.CFrame=CFrame.new(best+Vector3.new(0,4,0))
-        elseif S.miningMode~="teleport" then
-            local hum=getHum(); if hum then hum:MoveTo(best) end
-        end
+    if best and not capsuleBusy then
+        if S.miningMode=="teleport" then hrp.CFrame=CFrame.new(best+Vector3.new(0,4,0))
+        else local hum=getHum(); if hum then hum:MoveTo(best) end end
     end
 end)
 
