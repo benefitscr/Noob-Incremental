@@ -458,10 +458,17 @@ local function withCapsuleZone(ctype, fn)
     local origin=hrp.CFrame
     local enterCF = capsuleEnterCF(part)
     capsuleBusy = true
-    hrp.CFrame = enterCF; task.wait(capsuleOpenWait)
+    -- Удерживаем позицию в зоне весь период ожидания:
+    -- каждые 50ms снапаем обратно, даже если другой цикл вытащил
+    local deadline = tick() + capsuleOpenWait
+    repeat
+        local h = getHRP()
+        if h then h.CFrame = enterCF end
+        task.wait(0.05)
+    until tick() >= deadline
     fn()
-    hrp.CFrame = origin
     capsuleBusy = false
+    local h = getHRP(); if h then h.CFrame = origin end
 end
 
 -- Bulk: re-entry loop while cond() returns true, returns opened count
