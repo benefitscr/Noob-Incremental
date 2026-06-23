@@ -433,21 +433,38 @@ local function capsuleEnterCF(part)
     return CFrame.new(p.X,y,p.Z), CFrame.new(p.X+sz.X+8,y,p.Z)
 end
 
--- Hold player inside capsule zone for 0.6s (immune to mining/ice teleport)
--- then call fn(); release lock
--- Snap into capsule zone, fire, release in ≤0.1s so mining/ice can resume
+-- Re-snap loop: overwrite HRP position every Heartbeat for ~N ticks so server
+-- definitely sees us inside the zone trigger, then fire and release immediately.
+local SNAP_TICKS = 6   -- ~6 physics frames ≈ 96ms at 60fps; enough for server
+local function snapAndFire(enterCF, hrp, fn)
+    -- Hold position for SNAP_TICKS Heartbeat frames
+    local conn; local done = false
+    local ticks = 0
+    conn = RunService.Heartbeat:Connect(function()
+        if done then conn:Disconnect(); return end
+        hrp.CFrame = enterCF
+        ticks = ticks + 1
+        if ticks >= SNAP_TICKS then
+            done = true
+            fn()           -- fire while still in zone (server just saw us here)
+        end
+    end)
+    -- Wait for Heartbeat loop to finish (≈ SNAP_TICKS frames)
+    local deadline = tick() + 0.5
+    while not done and tick() < deadline do task.wait() end
+    conn:Disconnect()
+end
+
 local function withCapsuleZone(ctype, fn)
     local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
     if not (part and hrp) then fn(); return end
     local enterCF=capsuleEnterCF(part)
     capsuleBusy=true
-    hrp.CFrame=enterCF    -- single snap, server sees position
-    task.wait(0.08)       -- ≤0.1s — server registers location
-    fn()                  -- fire OpenCapsule
-    capsuleBusy=false     -- release immediately, character is free
+    snapAndFire(enterCF, hrp, fn)
+    capsuleBusy=false   -- release; character resumes teleporting immediately
 end
 
--- Open as many capsules as cond() allows; busy flag held only during snap
+-- Open as many capsules as cond() allows
 local function bulkCapsules(ctype, cond)
     local timeout=tick()+5
     while capsuleBusy and tick()<timeout do task.wait(0.1) end
@@ -458,12 +475,10 @@ local function bulkCapsules(ctype, cond)
     while cond() do
         local h=getHRP(); if not h then break end
         capsuleBusy=true
-        h.CFrame=enterCF   -- snap in
-        task.wait(0.08)    -- server registers
-        fire("OpenCapsule",ctype)
-        capsuleBusy=false  -- release; character resumes teleporting freely
+        snapAndFire(enterCF, h, function() fire("OpenCapsule",ctype) end)
+        capsuleBusy=false
         count=count+1
-        task.wait(0.5)     -- capsule open animation / server cooldown
+        task.wait(0.5)   -- capsule animation / server cooldown
     end
     return count
 end
