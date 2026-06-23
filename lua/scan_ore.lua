@@ -53,6 +53,14 @@ local function rockPos(rock)
     local bp = rock:FindFirstChildWhichIsA("BasePart",true); return bp and bp.Position
 end
 
+-- Find the Health TextLabel inside OresTopUI.Bar.Health
+-- It has .Text (e.g. "150/500") not .Value
+local function findHealthLabel(ore)
+    local ui=ore:FindFirstChild("OresTopUI")
+    local bar=ui and ui:FindFirstChild("Bar")
+    return bar and bar:FindFirstChild("Health")  -- TextLabel
+end
+
 local function getLive(nameFilter)
     local list={}
     for _,ore in ipairs(oreF:GetChildren()) do
@@ -64,15 +72,7 @@ local function getLive(nameFilter)
                 pos=bp and bp.Position
             end
             if pos and (not nameFilter or ore.Name==nameFilter) then
-                -- Find HP value
-                local hpVal=nil
-                for _,d in ipairs(ore:GetDescendants()) do
-                    local low=d.Name:lower()
-                    if low:find("hp") or low:find("health") or low:find("durability") then
-                        hpVal=d; break
-                    end
-                end
-                list[#list+1]={ore=ore,rock=rock,pos=pos,name=ore.Name,hpVal=hpVal}
+                list[#list+1]={ore=ore,rock=rock,pos=pos,name=ore.Name,hp=findHealthLabel(ore)}
             end
         end
     end
@@ -90,17 +90,16 @@ p("[Net] Live ores: "..#ores)
 local first=ores[1]
 if not first then warn("[Net] No ores found"); return end
 
--- Print HP value if found
-if first.hpVal then
-    p("[Net] HP value found: "..first.hpVal.ClassName..": "..first.hpVal.Name.." = "..tostring(first.hpVal.Value))
+-- HP is stored in OresTopUI.Bar.Health (TextLabel.Text = "cur/max")
+if first.hp then
+    p("[Net] HealthLabel found: "..first.hp:GetFullName())
+    p("[Net] Current HP text: '"..tostring(first.hp.Text).."'")
 else
-    p("[Net] No HP value found in "..first.name.." model")
-    -- Check all values in the model
-    p("[Net] All values in first ore:")
+    p("[Net] No HealthLabel — dumping all ore descendants:")
     for _,d in ipairs(first.ore:GetDescendants()) do
-        if d:IsA("NumberValue") or d:IsA("IntValue") or d:IsA("StringValue") or d:IsA("BoolValue") then
-            p("  "..d.ClassName..": "..d.Name.." = "..tostring(d.Value))
-        end
+        local ok,txt=pcall(function() return d:IsA("GuiObject") and d.Text or nil end)
+        local v = ok and txt and (' text="'..txt..'"') or ""
+        p("  "..d.ClassName..": "..d.Name..v)
     end
 end
 
@@ -208,22 +207,28 @@ if #infOres>0 then
     local inf=infOres[1]
     p("Target: "..inf.name.." @ "..tostring(inf.pos))
 
-    -- Find HP value in this ore
-    local hpValue=nil
-    for _,d in ipairs(inf.ore:GetDescendants()) do
-        if d:IsA("NumberValue") or d:IsA("IntValue") then
-            p("  Value: "..d.Name.." = "..tostring(d.Value))
-            if d.Name:lower():find("hp") or d.Name:lower():find("health") or d.Name:lower():find("dur") then
-                hpValue=d
-            end
-        end
+    -- HP is in TextLabel OresTopUI.Bar.Health (.Text = "cur/max")
+    local hpLabel=inf.hp
+    if hpLabel then
+        p("  HP text: '"..tostring(hpLabel.Text).."'")
+    else
+        p("  No HealthLabel found on this ore")
     end
 
-    -- Watch for any value changes
+    -- Watch TextLabel.Text changes (HP going down) + any NumberValue changes
     local valueChanges={}
+    if hpLabel then
+        local lastText=hpLabel.Text
+        hpLabel.Changed:Connect(function(prop)
+            if prop=="Text" and hpLabel.Text~=lastText then
+                table.insert(valueChanges,{t=tick(),name="HP.Text",old=lastText,new=hpLabel.Text})
+                lastText=hpLabel.Text
+            end
+        end)
+    end
     for _,d in ipairs(inf.ore:GetDescendants()) do
         if d:IsA("NumberValue") or d:IsA("IntValue") then
-            local dRef=d; local lastName=d.Name; local lastVal=d.Value
+            local lastName=d.Name; local lastVal=d.Value
             d.Changed:Connect(function(newVal)
                 table.insert(valueChanges,{t=tick(),name=lastName,old=lastVal,new=newVal})
                 lastVal=newVal
