@@ -58,6 +58,7 @@ local L_TABLE = {
         tog_prismEquip="Enable Auto-Equip",
         btn_open200="📦 Open 200 Chests", btn_openAll="🎱 Open All Now",
         btn_mineAll="⛏️ Mine All Ores", btn_calcEta="Calculate ETA",
+        btn_rollN="🎲 Roll N Times", lbl_rollCount="Roll Count",
         lbl_runeInterval="Roll Interval (s)",
         lbl_iceTeleWait="Ice Teleport Wait (s)",
         lbl_prismTrigger="Trigger (sec before payout)",
@@ -105,6 +106,7 @@ local L_TABLE = {
         tog_prismEquip="Включить авто-экип",
         btn_open200="📦 Открыть 200 сундуков", btn_openAll="🎱 Открыть всё",
         btn_mineAll="⛏️ Добыть все руды", btn_calcEta="Вычислить ETA",
+        btn_rollN="🎲 N роллов ауры", lbl_rollCount="Кол-во роллов",
         lbl_runeInterval="Интервал броска (с)",
         lbl_iceTeleWait="Ожидание телепорта (с)",
         lbl_prismTrigger="Триггер (сек до выплаты)",
@@ -201,6 +203,7 @@ local S = {
 }
 local selectedRunes   = {}
 local runeInterval    = 0.1
+local rollCount       = 500
 local selectedIceBtn  = 12
 local iceTeleportWait = 0.15
 local capsuleOpenWait = 2.5
@@ -226,7 +229,7 @@ local BOOL_KEYS = {
 }
 local function saveSettings()
     local lines = {
-        "runeInterval="..runeInterval, "selectedChest="..selectedChest,
+        "runeInterval="..runeInterval, "rollCount="..rollCount, "selectedChest="..selectedChest,
         "selectedMinCap="..selectedMinCap, "prismThreshold="..prismThreshold,
         "prismEquipPat="..prismEquipPat, "miningMode="..S.miningMode,
         "selectedIceBtn="..selectedIceBtn, "iceTeleportWait="..iceTeleportWait,
@@ -250,6 +253,7 @@ local function loadSettings()
         local k, v = line:match("^(.-)=(.*)$")
         if k then
             if     k=="runeInterval"    then runeInterval    = tonumber(v) or 0.1
+            elseif k=="rollCount"       then rollCount       = tonumber(v) or 500
             elseif k=="selectedChest"   then selectedChest   = v or "Chest"
             elseif k=="selectedMinCap"  then selectedMinCap  = v or "Classic"
             elseif k=="prismThreshold"  then prismThreshold  = tonumber(v) or 3
@@ -938,6 +942,40 @@ TabCombat:CreateSlider({
     Callback=function(v) runeInterval=v; saveSettings() end,
 })
 TabCombat:CreateToggle({Name=L("tog_runes"), CurrentValue=S.runes, Flag="rn_", Callback=function(v) S.runes=v; saveSettings() end})
+TabCombat:CreateSlider({
+    Name=L("lbl_rollCount"), Range={100,2000}, Increment=100,
+    CurrentValue=rollCount, Flag="rollCnt",
+    Callback=function(v) rollCount=v; saveSettings() end,
+})
+local rollActive = false
+local rollProgressLbl = TabCombat:CreateLabel("—")
+TabCombat:CreateButton({Name=L("btn_rollN"), Callback=function()
+    if rollActive then return end
+    rollActive = true
+    task.spawn(function()
+        local total = rollCount
+        notify("🎲 Roll", total.." роллов...", nil, 3)
+        for i=1,total do
+            if not rollActive then break end
+            pcall(MR.FireServer, MR, "RollAura")
+            if i%25==0 then
+                local ok,aura = pcall(function() return LP.FEATURES.AURAS.Equipped.Value end)
+                rollProgressLbl:Set(i.."/"..total.." — "..(ok and aura or "?"))
+                task.wait(0.01)
+            end
+            task.wait(0.18)
+        end
+        local ok2,aura2 = pcall(function() return LP.FEATURES.AURAS.Equipped.Value end)
+        local final = ok2 and aura2 or "?"
+        rollProgressLbl:Set("Готово: "..total.." | "..final)
+        notify("🎲 Roll Done", "Аура: "..final, nil, 6)
+        rollActive = false
+    end)
+end})
+TabCombat:CreateButton({Name="⏹ Stop Roll", Callback=function()
+    rollActive = false
+    rollProgressLbl:Set("Остановлено")
+end})
 
 TabCombat:CreateSection(L("sec_tier"))
 TabCombat:CreateToggle({Name=L("tog_tier"),         CurrentValue=S.tier,         Flag="tr_", Callback=function(v) S.tier=v;         saveSettings() end})
