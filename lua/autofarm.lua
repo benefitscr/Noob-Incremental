@@ -1218,3 +1218,80 @@ end)
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
 Fluent:Notify({Title="Noob Incremental v8.0",Content="✅ Loaded | @Benefit",Duration=5})
+
+-- ─── Mobile toggle button ─────────────────────────────────────────────────────
+-- Draggable ☰ button always visible — tap to show/hide Fluent window.
+-- Finds the Fluent ScreenGui and toggles its main frame.
+task.spawn(function()
+    task.wait(1)
+    pcall(function()
+        -- Find Fluent's ScreenGui in PlayerGui
+        local pGui    = LP:WaitForChild("PlayerGui", 5)
+        local fluentSG= nil
+        for _, sg in ipairs(pGui:GetChildren()) do
+            if sg:IsA("ScreenGui") and sg:FindFirstChild("Main") then
+                fluentSG = sg; break
+            end
+        end
+        if not fluentSG then return end
+        local mainFrame = fluentSG:FindFirstChild("Main")
+        if not mainFrame then return end
+
+        -- Build toggle button ScreenGui
+        local sg = Instance.new("ScreenGui")
+        sg.Name            = "BenefitToggle"
+        sg.ResetOnSpawn    = false
+        sg.DisplayOrder    = 999
+        sg.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+        sg.IgnoreGuiInset  = true
+        sg.Parent          = pGui
+
+        local btn = Instance.new("TextButton")
+        btn.Name            = "Btn"
+        btn.Size            = UDim2.fromOffset(48, 48)
+        btn.Position        = UDim2.new(1, -58, 0.5, -24)
+        btn.AnchorPoint     = Vector2.new(0, 0)
+        btn.BackgroundColor3= Color3.fromRGB(30, 30, 35)
+        btn.TextColor3      = Color3.fromRGB(230, 230, 230)
+        btn.Font            = Enum.Font.GothamBold
+        btn.TextSize        = 22
+        btn.Text            = "☰"
+        btn.BorderSizePixel = 0
+        btn.ZIndex          = 10
+        btn.Parent          = sg
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = btn
+
+        -- Toggle Fluent window on tap
+        btn.MouseButton1Click:Connect(function()
+            mainFrame.Visible = not mainFrame.Visible
+            btn.Text = mainFrame.Visible and "☰" or "▶"
+        end)
+
+        -- Drag support
+        local dragging, dragStart, startPos = false, nil, nil
+        btn.InputBegan:Connect(function(inp)
+            if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then
+                dragging  = true
+                dragStart = inp.Position
+                startPos  = btn.Position
+            end
+        end)
+        btn.InputChanged:Connect(function(inp)
+            if dragging and (inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseMovement) then
+                local delta = inp.Position - dragStart
+                btn.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+        btn.InputEnded:Connect(function(inp)
+            if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then
+                dragging = false
+            end
+        end)
+    end)
+end)
