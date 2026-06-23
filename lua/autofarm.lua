@@ -234,7 +234,6 @@ local S = {
     mining=false, exchangeOre=false, miningMode="teleport",
     runes=false, tier=false, awaken=false, upgradeQuest=false,
     prismEquip=false, autoCoinFarm=false, autoPrism=false, autoPot=false, autoGuildClaim=false,
-    runeTeleport=false,
     StarterTree=false, TycoonTree=false, FarmTree=false,
     PrismTree=false, IceTree=false, MiningTree=false,
     Ice=false, Fire=false, Blaze=false, Water=false, Oof=false,
@@ -270,7 +269,7 @@ local BOOL_KEYS = {
     "StarterTree","TycoonTree","FarmTree","PrismTree","IceTree","MiningTree",
     "Ice","Fire","Blaze","Water","Oof","Rebirth","Wood","Planks",
     "Bread","Cash","Coin","HackPoints","Gem",
-    "autoPot","autoGuildClaim","runeTeleport",
+    "autoPot","autoGuildClaim",
 }
 local function saveSettings()
     local lines = {
@@ -905,40 +904,15 @@ safeLoop(0.8, function()
     end
 end)
 
--- Rune rolling loop.
--- runeTeleport=true: телепортируем в каждую зону перед ролом
---   → сервер автоматически роллит из позиции + наш RollRune = 2× rate
---   → зоны получают полный rate по очереди, не делят один кулдаун
--- runeTeleport=false: только RollRune (6.5/s делится на кол-во зон)
+-- Server cooldown ~0.155s per player. Fire all zones per tick, wait once.
 task.spawn(function()
-    local origin = nil
     while true do
         if S.runes and #selectedRunes > 0 then
-            local zones = selectedRunes
-            if S.runeTeleport then
-                local hrp = getHRP()
-                if hrp and not origin then origin = hrp.CFrame end
-                for _, rune in ipairs(zones) do
-                    hrp = getHRP()
-                    if not hrp then break end
-                    local part = getRuneZonePart(rune)
-                    if part then
-                        hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 3, 0))
-                        task.wait(0.05)
-                    end
-                    pcall(MR.FireServer, MR, "RollRune", rune)
-                    task.wait(math.max(0.155, runeInterval))
-                end
-            else
-                for _, rune in ipairs(zones) do
-                    pcall(MR.FireServer, MR, "RollRune", rune)
-                end
-                task.wait(math.max(0.155, runeInterval))
+            for _, rune in ipairs(selectedRunes) do
+                pcall(MR.FireServer, MR, "RollRune", rune)
             end
-        else
-            origin = nil
-            task.wait(0.1)
-        end
+            task.wait(math.max(0.155, runeInterval))
+        else task.wait(0.1) end
     end
 end)
 
@@ -1204,11 +1178,6 @@ TabCombat:CreateSlider({
     Callback=function(v) runeInterval=v; saveSettings() end,
 })
 TabCombat:CreateToggle({Name=L("tog_runes"), CurrentValue=S.runes, Flag="rn_", Callback=function(v) S.runes=v; saveSettings() end})
-TabCombat:CreateToggle({
-    Name="⚡ Zone Teleport (2× rate per zone)",
-    CurrentValue=S.runeTeleport, Flag="rtp",
-    Callback=function(v) S.runeTeleport=v; saveSettings() end,
-})
 TabCombat:CreateSlider({
     Name=L("lbl_rollCount"), Range={100,2000}, Increment=100,
     CurrentValue=rollCount, Flag="rollCnt",
