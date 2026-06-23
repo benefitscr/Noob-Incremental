@@ -425,13 +425,25 @@ local function restoreEquipment(savedEquip, savedMinions)
     end
 end
 
--- Ore position from Rock child
+-- Ore position — Rock can be MeshPart (simple) or Model (Infinity)
 local function getOrePos(ore)
     if not (ore and ore.Parent) then return nil end
     local rock=ore:FindFirstChild("Rock"); if not rock then return nil end
-    if rock:IsA("BasePart") or rock:IsA("MeshPart") then return rock.Position end
-    local p=rock:FindFirstChildWhichIsA("BasePart") or rock:FindFirstChildWhichIsA("MeshPart")
-    return p and p.Position
+    if rock:IsA("BasePart") then return rock.Position end
+    local pp=rock.PrimaryPart; if pp then return pp.Position end
+    local bp=rock:FindFirstChildWhichIsA("BasePart",true); return bp and bp.Position
+end
+
+-- Ore HP from OresTopUI.Bar.Health (TextLabel, text = "cur/max" or "cur")
+-- Returns 0 if broken, -1 if no label (assume alive), >0 if alive
+local function getOreHP(ore)
+    if not (ore and ore.Parent) then return 0 end
+    local ui=ore:FindFirstChild("OresTopUI")
+    local bar=ui and ui:FindFirstChild("Bar")
+    local lbl=bar and bar:FindFirstChild("Health")
+    if not lbl then return -1 end
+    local cur=tonumber(lbl.Text:match("^([%d%.]+)")) or 0
+    return cur
 end
 
 -- CFrame at center of TouchPart — most reliable position for server to detect
@@ -692,24 +704,47 @@ safeLoop(2, function()
     if not capsuleBusy then hrp.CFrame=origin end
 end)
 
--- Mining (0.8s) — skipped while capsuleBusy; cached ore folder
-safeLoop(0.8, function()
-    if not (S.mining and next(selectedOres)~=nil) or capsuleBusy then return end
-    local folder=getOreFolder(); local hrp=getHRP()
-    if not (folder and hrp) then return end
-    local best,bd=nil,math.huge
-    for _, ore in ipairs(folder:GetChildren()) do
-        if selectedOres[ore.Name] and ore.Parent then
-            local pos=getOrePos(ore)
-            if pos then
-                local dd=(pos-hrp.Position).Magnitude
-                if dd<bd then bd=dd; best=pos end
+-- Mining loop — stay on current ore until HP = 0, then pick nearest next
+local _miningOre = nil
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if not (S.mining and next(selectedOres)~=nil) or capsuleBusy then
+            _miningOre = nil
+        else
+            local folder=getOreFolder(); local hrp=getHRP()
+            if folder and hrp then
+                -- Check if current ore is still alive
+                local alive = _miningOre
+                    and _miningOre.Parent
+                    and getOreHP(_miningOre) ~= 0
+                if not alive then
+                    -- Pick nearest live ore
+                    local best,bd=nil,math.huge
+                    for _,ore in ipairs(folder:GetChildren()) do
+                        if selectedOres[ore.Name] and ore.Parent and getOreHP(ore)~=0 then
+                            local pos=getOrePos(ore)
+                            if pos then
+                                local dd=(pos-hrp.Position).Magnitude
+                                if dd<bd then bd=dd; best=ore end
+                            end
+                        end
+                    end
+                    _miningOre=best
+                end
+                -- Teleport/walk to current ore
+                if _miningOre and _miningOre.Parent then
+                    local pos=getOrePos(_miningOre)
+                    if pos then
+                        if S.miningMode=="teleport" then
+                            hrp.CFrame=CFrame.new(pos.X, pos.Y+3, pos.Z)
+                        else
+                            local hum=getHum(); if hum then hum:MoveTo(pos) end
+                        end
+                    end
+                end
             end
         end
-    end
-    if best and not capsuleBusy then
-        if S.miningMode=="teleport" then hrp.CFrame=CFrame.new(best+Vector3.new(0,4,0))
-        else local hum=getHum(); if hum then hum:MoveTo(best) end end
     end
 end)
 
