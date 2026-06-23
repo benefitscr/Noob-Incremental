@@ -1,12 +1,12 @@
-local _rfSrc = game:HttpGet("https://sirius.menu/rayfield", true)
-_G.__BENEFIT_RF_SRC = _rfSrc          -- кэш для autofarm — пропустит повторную загрузку
-local Rayfield = loadstring(_rfSrc)()
 local Http = game:GetService("HttpService")
 local LP   = game:GetService("Players").LocalPlayer
 
 local API  = "https://gta6free.app"
 local SRC  = "https://raw.githubusercontent.com/benefitscr/Noob-Incremental/main/lua/autofarm.lua"
 local DISC = "https://discord.gg/AXSnKF5R"
+
+-- Rayfield for key-system UI only
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield", true))()
 
 local LANG = "en"
 pcall(function()
@@ -25,6 +25,7 @@ local TX = {
 }
 local function L(k) return (TX[LANG] and TX[LANG][k]) or TX.en[k] or k end
 
+-- Pre-fetch main script in background
 local src, srcErr
 task.spawn(function()
     local ok, r = pcall(game.HttpGet, game, SRC, true)
