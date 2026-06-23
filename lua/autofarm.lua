@@ -895,8 +895,9 @@ task.spawn(function()
         if S.runes and #selectedRunes > 0 then
             for _, rune in ipairs(selectedRunes) do
                 pcall(MR.FireServer,MR,"RollRune",rune)
-                task.wait(math.max(0.2,runeInterval))
+                task.wait(0.05)
             end
+            task.wait(math.max(0.1, runeInterval))
         else task.wait(0.1) end
     end
 end)
