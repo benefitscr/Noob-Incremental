@@ -792,23 +792,29 @@ task.spawn(function()
     end
 end)
 
--- ─── EQUIP RESTORE HELPER ─────────────────────────────────────────────────────
+-- ─── EQUIP RESTORE HELPER (синхронная — ждём полного завершения) ──────────────
 local function restoreEquipment(savedEquip, savedMinions)
-    task.spawn(function()
-        if savedEquip then
-            for _, sn in ipairs(SLOTS) do
-                local ids = savedEquip[sn]
-                unequipSlot(sn); task.wait(0.1)
-                if ids and #ids > 0 then
-                    for _, id in ipairs(ids) do equipItem(sn, tostring(id)); task.wait(0.1) end
+    if savedEquip then
+        for _, sn in ipairs(SLOTS) do
+            local ids = savedEquip[sn]
+            unequipSlot(sn)
+            task.wait(0.25)
+            if ids and #ids > 0 then
+                for _, id in ipairs(ids) do
+                    equipItem(sn, tostring(id))
+                    task.wait(0.15)
                 end
             end
         end
-        if savedMinions and #savedMinions > 0 then
-            unequipAllMinions(); task.wait(0.2)
-            for _, id in ipairs(savedMinions) do equipMinion(id); task.wait(0.1) end
+    end
+    if savedMinions and #savedMinions > 0 then
+        unequipAllMinions()
+        task.wait(0.3)
+        for _, id in ipairs(savedMinions) do
+            equipMinion(id)
+            task.wait(0.12)
         end
-    end)
+    end
 end
 
 -- ─── AUTO PRISM ───────────────────────────────────────────────────────────────
@@ -818,15 +824,17 @@ safeLoop(0.5, function()
     local secs = tonumber(prismCooldownV.Value)
     if secs and secs <= 3 and not prismArmed then
         prismArmed = true
+        -- Снапшот ДО EquipBest
         local savedEquip   = readEquipped()
         local savedMinions = readMinionEquipped()
         fire("EquipBestMinions", "Prism")
         fire("EquipBest", "Prism")
         notify("⭐ Prism", "~"..math.floor(secs).."s", nil, 4)
-        task.wait(secs + 0.8)
+        task.wait(math.max(secs, 0.5) + 1.5)  -- ждём выплату + буфер
+        -- Синхронное восстановление — прежде чем разрешить следующий триггер
         restoreEquipment(savedEquip, savedMinions)
         notify("⭐ Prism", "Restored", nil, 3)
-        task.wait(5)
+        task.wait(3)
         prismArmed = false
     end
 end)
@@ -837,11 +845,12 @@ task.spawn(function()
     while true do
         if S.autoCoinFarm and not coinArmed then
             coinArmed = true
+            -- Снапшот ДО EquipBest
             local savedEquip   = readEquipped()
             local savedMinions = readMinionEquipped()
             fire("EquipBest", "Coin")
             fire("EquipBestMinions", "Coin")
-            task.wait(1)
+            task.wait(2)  -- ждём пока сервер применит EquipBest
             fire("ExchangeAllAnimalProducts")
             task.wait(0.5)
             for _, m in ipairs(selectedMilestones) do
@@ -849,7 +858,9 @@ task.spawn(function()
                 task.wait(0.2)
             end
             task.wait(0.5)
+            -- Синхронное восстановление — coinArmed=false только после полного завершения
             restoreEquipment(savedEquip, savedMinions)
+            task.wait(0.5)
             coinArmed = false
             task.wait(coinInterval)
         else
