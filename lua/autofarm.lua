@@ -1,4 +1,4 @@
--- Noob Incremental Autofarm v7.0  @Benefit
+-- Noob Incremental Autofarm v7.1  @Benefit
 -- Rayfield UI · ru/en · Chances tab
 
 -- ─── LOAD UI ──────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ end)
 local LANG = "en"
 local L_TABLE = {
     en = {
-        win_title="Noob Incremental", win_sub="v7 · Benefit",
+        win_title="Noob Incremental", win_sub="v7.1 · Benefit",
         tab_farm="Farm", tab_combat="Runes", tab_mine="Mine",
         tab_upgrades="Upgrades",
         tab_tele="Teleport", tab_chances="Chances",
@@ -109,7 +109,7 @@ local L_TABLE = {
         notif_error="Error", notif_notFound=" not found",
     },
     ru = {
-        win_title="Noob Incremental", win_sub="v7 · Benefit",
+        win_title="Noob Incremental", win_sub="v7.1 · Benefit",
         tab_farm="Фарм", tab_combat="Руны", tab_mine="Шахта",
         tab_upgrades="Апгрейды",
         tab_tele="Телепорт", tab_chances="Шансы",
@@ -1022,7 +1022,7 @@ TabFarm:CreateToggle({Name=L("tog_hireNoob"),   CurrentValue=S.hireNoob,   Flag=
 TabFarm:CreateSection(L("sec_noobs"))
 TabFarm:CreateDropdown({
     Name="Noob Types", Flag="noobTypes",
-    Options={"Starter","Explorer","Knight","Fisherman","Cooker","Farmer","Archer","Soldier"},
+    Options={"Starter","Explorer","Knight","Fisherman","Cooker","Farmer","Archer","Soldier","Magician","Hacker 1","Hacker 2","Hacker 3","Hacker 4"},
     CurrentOption=selectedNoobs, MultipleOptions=true,
     Callback=function(o) selectedNoobs=o; saveSettings() end,
 })
