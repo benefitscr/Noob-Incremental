@@ -704,13 +704,46 @@ local RUNE_ZONES = {
 -- ─── PROFILE STAT READER ──────────────────────────────────────────────────────
 local function readProfileStats()
     local rps, cd, luck
+    local rawRps, rawCd, rawLuck = "?","?","?"
     pcall(function()
-        local statsF = LP.PlayerGui.Profile.Main.Frame.Main.ScrollingFrame.MainProfile.Profile.Stats
-        rps  = parseNum(statsF.RPS.Amount.Text)
-        cd   = parseNum(statsF.RuneSpeed.Amount.Text)
-        luck = parseNum(statsF.RuneLuck.Amount.Text)
+        -- Recursive search: survives UI refactors
+        local profileGui = LP.PlayerGui:FindFirstChild("Profile")
+        local statsF = profileGui and profileGui:FindFirstChild("Stats", true)
+        if not statsF then
+            -- Hard-coded fallback path
+            local ok2, s = pcall(function()
+                return LP.PlayerGui.Profile.Main.Frame.Main
+                       .ScrollingFrame.MainProfile.Profile.Stats
+            end)
+            if ok2 then statsF = s end
+        end
+        if not statsF then return end
+
+        -- Read one stat; try Amount→Value→direct .Text
+        local function readStat(name)
+            local node = statsF:FindFirstChild(name)
+            if not node then return nil, "missing:"..name end
+            for _, child in ipairs({"Amount","Value","Label"}) do
+                local c = node:FindFirstChild(child)
+                if c and c:IsA("TextLabel") and c.Text and c.Text~="" then
+                    return parseNum(c.Text), c.Text
+                end
+            end
+            if node:IsA("TextLabel") and node.Text and node.Text~="" then
+                return parseNum(node.Text), node.Text
+            end
+            return nil, "no-text"
+        end
+
+        rps,  rawRps  = readStat("RPS")
+        cd,   rawCd   = readStat("RuneSpeed")
+        luck, rawLuck = readStat("RuneLuck")
     end)
-    return rps, cd, luck
+    -- Fallback: derive RPS from cooldown if direct read failed
+    if (not rps or rps <= 0) and (cd and cd > 0) then
+        rps = 1 / cd
+    end
+    return rps, cd, luck, rawRps, rawCd, rawLuck
 end
 
 -- ─── GAME LOOPS ───────────────────────────────────────────────────────────────
@@ -1260,13 +1293,13 @@ end
 
 -- Compute and display ETA for all zones
 local function updateChances()
-    local rps, cd, autoLuck = readProfileStats()
-    -- prefer manual override; auto-read from Profile.Stats.RuneLuck.Amount
+    local rps, cd, autoLuck, rawRps, rawCd, rawLuck = readProfileStats()
     local luck = manualRuneLuck or autoLuck
 
-    rpsLabel:Set(L("lbl_rps")..(rps and fmtNum(rps) or "?"))
-    cdLabel:Set(L("lbl_cd")..(cd and string.format("%.3fs",cd) or "?"))
-    luckLabel:Set("Rune Luck: "..(luck and fmtNum(luck) or "? (enter manually)"))
+    -- Show parsed value + raw text so misreads are obvious
+    rpsLabel:Set(L("lbl_rps")..(rps and fmtNum(rps) or "?").."  [raw: "..(rawRps or "?").."]")
+    cdLabel:Set(L("lbl_cd")..(cd and string.format("%.3fs",cd) or "?").."  [raw: "..(rawCd or "?").."]")
+    luckLabel:Set("Rune Luck: "..(luck and fmtNum(luck) or "? (enter manually)").."  [raw: "..(rawLuck or "?").."]")
 
     for _, zone in ipairs(RUNE_ZONES) do
         local para=zoneParagraphs[zone.name]
