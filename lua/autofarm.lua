@@ -890,14 +890,16 @@ safeLoop(0.8, function()
     end
 end)
 
+-- Server rune cooldown is ~0.155s regardless of fire rate.
+-- Fire all zones per tick, then wait once — each zone gets full 6.5 rolls/s.
 task.spawn(function()
     while true do
         if S.runes and #selectedRunes > 0 then
-            for _, rune in ipairs(selectedRunes) do
-                pcall(MR.FireServer,MR,"RollRune",rune)
-                task.wait(0.05)
+            local zones = selectedRunes
+            for _, rune in ipairs(zones) do
+                pcall(MR.FireServer, MR, "RollRune", rune)
             end
-            task.wait(math.max(0.1, runeInterval))
+            task.wait(math.max(0.155, runeInterval))
         else task.wait(0.1) end
     end
 end)
@@ -1159,8 +1161,8 @@ TabCombat:CreateDropdown({
     Callback=function(o) selectedRunes=o; saveSettings() end,
 })
 TabCombat:CreateSlider({
-    Name=L("lbl_runeInterval"), Range={0.2,2}, Increment=0.05,
-    CurrentValue=runeInterval, Flag="runeInt",
+    Name=L("lbl_runeInterval"), Range={0.15,2}, Increment=0.05,
+    CurrentValue=math.max(runeInterval,0.155), Flag="runeInt",
     Callback=function(v) runeInterval=v; saveSettings() end,
 })
 TabCombat:CreateToggle({Name=L("tog_runes"), CurrentValue=S.runes, Flag="rn_", Callback=function(v) S.runes=v; saveSettings() end})
