@@ -26,7 +26,7 @@ end
 -- Читаем Oof из leaderstats как быстрый индикатор изменений
 local function stat()
     local ok, v = pcall(function() return LP.leaderstats.Oof.Value end)
-    return ok and v or 0
+    return ok and tostring(v) or "0"
 end
 
 local results = {}

@@ -17,38 +17,25 @@ local MR = RS.__Net.MainRemote
 
 local TAMPER_RULES = {
 
-    -- [1] Подмена количества при покупке: cost 100 → -100
-    --     Сервер: price = args[3]; currency -= price  → += price
-    { action = "BuyItem",      argIdx = 3, newVal = -math.huge },
-    { action = "Purchase",     argIdx = 2, newVal = -math.huge },
-    { action = "Buy",          argIdx = 3, newVal = -math.huge },
-    { action = "ShopBuy",      argIdx = 3, newVal = -math.huge },
+    -- [РЕАЛЬНЫЕ — из live hook capture]
 
-    -- [2] Подмена кол-ва капсул при batch-open
-    --     Если игра шлёт OpenCapsule("Prism", 1) → меняем на 9999
-    { action = "OpenCapsule",      argIdx = 3, oldVal = 1, newVal = 9999 },
-    { action = "OpenCapsule",      argIdx = 3, oldVal = nil, newVal = 100 },
-    { action = "OpenMinionCapsule",argIdx = 3, newVal = 9999 },
-    { action = "OpenChest",        argIdx = 3, oldVal = nil, newVal = 100 },
+    -- OpenCapsule: игра шлёт ("Super", 1) → меняем на 9999
+    -- РАБОТАЕТ: сервер принял 100, игра сама потом слала 100
+    { action = "OpenCapsule", argIdx = 3, newVal = 9999 },
 
-    -- [3] Подмена уровня при upgrade
-    --     UpgradeNoob("Fire", 1) → UpgradeNoob("Fire", 9999)
-    { action = "UpgradeNoob",  argIdx = 3, newVal = 9999 },
-    { action = "UpgradeLevel", argIdx = 3, newVal = 9999 },
+    -- BuyPotionTickets: количество строкой "x1" → "x999"
+    { action = "BuyPotionTickets", argIdx = 3, newVal = "x999" },
 
-    -- [4] Подмена валюты при транзакции
-    --     Если сервер принимает тип валюты как аргумент
-    { action = "SpendCurrency", argIdx = 2, newVal = "FakeCoin" },
+    -- UsePotion: count=1 → 9999 (использовать 9999 зелий за клик)
+    { action = "UsePotion", argIdx = 3, newVal = 9999 },
 
-    -- [5] Подмена tier при roll (роллим лучший tier)
-    --     RollTier("Common") → RollTier("Legendary")
-    { action = "RollTier",  argIdx = 2, newVal = "Legendary" },
-    { action = "RollTier",  argIdx = 2, newVal = "Divine"    },
+    -- OpenChest: если есть batch-параметр
+    { action = "OpenChest", argIdx = 3, newVal = 9999 },
 
-    -- [6] При redeemCode — пробуем подставить известные коды
-    { action = "RedeemCode", argIdx = 2, newVal = "ADMIN"   },
-    { action = "UseCode",    argIdx = 2, newVal = "DEBUG"   },
-    { action = "ClaimCode",  argIdx = 2, newVal = "INTERNAL"},
+    -- UpgradeUpgradeMax: второй параметр — уровень/тип прокачки
+    -- Оставляем как есть, не ломаем структуру
+
+    -- BuyFactory: был bool "true" — оставляем
 }
 
 -- Быстрый поиск правил по action + argIdx
