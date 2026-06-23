@@ -40,13 +40,31 @@ end
 local oreF = GC:FindFirstChild("Ores")
 if not oreF then warn("[Audit] No GC/Ores"); return end
 
+-- Rock can be MeshPart (simple ores) or Model (Infinity etc) — handle both
+local function rockPos(rock)
+    if not rock then return nil end
+    if rock:IsA("BasePart") then return rock.Position end
+    local pp = rock.PrimaryPart
+    if pp then return pp.Position end
+    local bp = rock:FindFirstChildWhichIsA("BasePart")
+    return bp and bp.Position
+end
+
 local function getLive(nameFilter)
     local list = {}
     for _, ore in ipairs(oreF:GetChildren()) do
-        local rock = ore:FindFirstChild("Rock")
-        if rock and ore.Parent then
-            if not nameFilter or ore.Name == nameFilter then
-                list[#list+1] = {ore=ore, rock=rock, pos=rock.Position, name=ore.Name}
+        if ore.Parent then
+            local rock = ore:FindFirstChild("Rock")
+            local pos  = rock and rockPos(rock)
+            if not pos then
+                -- fallback: any BasePart in ore model
+                local bp = ore:FindFirstChildWhichIsA("BasePart", true)
+                pos = bp and bp.Position
+            end
+            if pos then
+                if not nameFilter or ore.Name == nameFilter then
+                    list[#list+1] = {ore=ore, rock=rock, pos=pos, name=ore.Name}
+                end
             end
         end
     end
@@ -80,22 +98,33 @@ end
 sec("ORE MODEL STRUCTURE")
 local ores = getLive()
 p("Total live ores: "..#ores)
-local sample = ores[1]
-if sample then
-    p("Sample: "..sample.name)
+
+-- Print structure for 2 different types (Stone = simple, Infinity = complex)
+local samplesToShow = {}
+for _, name in ipairs({"Stone","Iron","Copper","Infinity","Voidsteel","Ruby"}) do
+    for _, o in ipairs(ores) do
+        if o.name==name and not samplesToShow[name] then
+            samplesToShow[name]=o; break
+        end
+    end
+end
+if not next(samplesToShow) then samplesToShow[ores[1] and ores[1].name or "?"] = ores[1] end
+
+for oreName, sample in pairs(samplesToShow) do
+    p("\n-- Ore: "..oreName.." | Rock class: "..(sample.rock and sample.rock.ClassName or "?"))
     for _, d in ipairs(sample.ore:GetDescendants()) do
         local v = ""
         if d:IsA("NumberValue") or d:IsA("IntValue") or d:IsA("StringValue") then
             v = " = "..tostring(d.Value)
         end
-        p("  "..d.ClassName..": "..d:GetFullName():gsub("Workspace%.",""):gsub("__GAME_CONTENT%.","")..v)
+        p("  "..d.ClassName..": "..d.Name..v)
     end
-    -- Check for HP/health value
-    p("-- Looking for health/hp values:")
+    p("  -- HP/health search:")
     for _, d in ipairs(sample.ore:GetDescendants()) do
         local low = d.Name:lower()
-        if low:find("hp") or low:find("health") or low:find("dur") or low:find("hits") then
-            p("  FOUND: "..d.ClassName..": "..d.Name.." = "..(pcall(function() return d.Value end) and tostring(d.Value) or "?"))
+        if low:find("hp") or low:find("health") or low:find("dur") or low:find("hit") then
+            local ok, val = pcall(function() return d.Value end)
+            p("  !! "..d.ClassName..": "..d.Name.." = "..(ok and tostring(val) or "?"))
         end
     end
 end
