@@ -1,4 +1,6 @@
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield", true))()
+local _rfSrc = game:HttpGet("https://sirius.menu/rayfield", true)
+_G.__BENEFIT_RF_SRC = _rfSrc          -- кэш для autofarm — пропустит повторную загрузку
+local Rayfield = loadstring(_rfSrc)()
 local Http = game:GetService("HttpService")
 local LP   = game:GetService("Players").LocalPlayer
 

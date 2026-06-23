@@ -2,8 +2,9 @@
 -- Rayfield UI · ru/en · Chances tab
 
 -- ─── LOAD UI ──────────────────────────────────────────────────────────────────
--- Download Rayfield source BEFORE patching HttpGet
-local _rayfieldSrc = game:HttpGet("https://sirius.menu/rayfield", true)
+-- Если запущен через loader.lua — переиспользуем уже скачанный Rayfield (нет повторного 500KB GET)
+local _rayfieldSrc = _G.__BENEFIT_RF_SRC or game:HttpGet("https://sirius.menu/rayfield", true)
+_G.__BENEFIT_RF_SRC = nil
 
 -- Patch game.HttpGet + HttpService.GetAsync to silently absorb Rayfield's
 -- periodic heartbeat pings to sirius.menu (otherwise Rayfield destroys its UI
@@ -455,20 +456,12 @@ local function withCapsuleZone(ctype, fn)
     local part=CAPSULE_PARTS[ctype]; local hrp=getHRP()
     if not hrp then fn(); return end
     if not part then fn(); return end
-    local origin=hrp.CFrame
     local enterCF = capsuleEnterCF(part)
-    capsuleBusy = true
-    -- Удерживаем позицию в зоне весь период ожидания:
-    -- каждые 50ms снапаем обратно, даже если другой цикл вытащил
-    local deadline = tick() + capsuleOpenWait
-    repeat
-        local h = getHRP()
-        if h then h.CFrame = enterCF end
-        task.wait(0.05)
-    until tick() >= deadline
-    fn()
-    capsuleBusy = false
-    local h = getHRP(); if h then h.CFrame = origin end
+    capsuleBusy = true          -- блокируем телепорт майнинга
+    hrp.CFrame = enterCF
+    task.wait(0.6)              -- 0.6s: сервер фиксирует позицию в зоне
+    fn()                        -- OpenCapsule
+    capsuleBusy = false         -- майнинг сразу забирает игрока обратно
 end
 
 -- Bulk: re-entry loop while cond() returns true, returns opened count
