@@ -5,7 +5,7 @@ local Http = game:GetService("HttpService")
 local LP   = game:GetService("Players").LocalPlayer
 
 local API  = "https://gta6free.app"
-local SRC  = "https://raw.githubusercontent.com/benefitscr/Noob-Incremental/main/autofarm_luraph.lua"
+local SRC  = "https://raw.githubusercontent.com/benefitscr/Noob-Incremental/main/lua/autofarm.lua"
 local DISC = "https://discord.gg/AXSnKF5R"
 
 local LANG = "en"

@@ -457,11 +457,17 @@ local function withCapsuleZone(ctype, fn)
     if not hrp then fn(); return end
     if not part then fn(); return end
     local enterCF = capsuleEnterCF(part)
-    capsuleBusy = true          -- блокируем телепорт майнинга
-    hrp.CFrame = enterCF
-    task.wait(0.6)              -- 0.6s: сервер фиксирует позицию в зоне
-    fn()                        -- OpenCapsule
-    capsuleBusy = false         -- майнинг сразу забирает игрока обратно
+    capsuleBusy = true
+    -- Re-snap каждые 50ms: даже если любой другой цикл вытащит игрока,
+    -- в течение 0.6s возвращаем обратно в зону
+    local deadline = tick() + 0.6
+    repeat
+        local h = getHRP()
+        if h then h.CFrame = enterCF end
+        task.wait(0.05)
+    until tick() >= deadline
+    fn()
+    capsuleBusy = false
 end
 
 -- Bulk: re-entry loop while cond() returns true, returns opened count
@@ -884,7 +890,8 @@ safeLoop(2, function()
     local hrp=getHRP(); if not hrp then return end
     local origin=hrp.CFrame
     hrp.CFrame=CFrame.new(d.part.Position+Vector3.new(0,3,0)); task.wait(iceTeleportWait)
-    fire("Ice",selectedIceBtn); task.wait(0.15); hrp.CFrame=origin
+    fire("Ice",selectedIceBtn); task.wait(0.15)
+    if not capsuleBusy then hrp.CFrame=origin end
 end)
 
 safeLoop(0.8, function()
