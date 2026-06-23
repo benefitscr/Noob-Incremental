@@ -37,7 +37,7 @@ local function test(name, fn)
     local after = stat()
     local changed = (after ~= before)
     local marker = changed and "★ VULN?" or "  safe"
-    print(string.format("[%s] %s  (%.3e → %.3e)", marker, name, before, after))
+    print(string.format("[%s] %s  (%s → %s)", marker, name, tostring(before), tostring(after)))
     if changed then
         results[#results+1] = name .. " | " .. tostring(before) .. " → " .. tostring(after)
     end
