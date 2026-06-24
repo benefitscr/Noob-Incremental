@@ -24,19 +24,16 @@ do
 end
 
 -- ─── Load UI ──────────────────────────────────────────────────────────────────
-local FLUENT_URLS = {
-    "https://raw.githubusercontent.com/dawid-scripts/Fluent/refs/heads/main/dist/main.lua",
-    "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua",
-}
+local _GUI_URL = "https://roblox-mcp.roblox-mcp.workers.dev/module/gui"
 local Fluent
-for _, url in ipairs(FLUENT_URLS) do
-    local ok, src = pcall(game.HttpGet, game, url, true)
-    if ok and src and #src > 100 then
-        local fn, err = loadstring(src)
-        if fn then Fluent = fn(); break end
+do
+    local ok, src = pcall(game.HttpGet, game, _GUI_URL, true)
+    if ok and src and #src > 500 then
+        local fn = loadstring(src)
+        if fn then Fluent = fn() end
     end
+    if not Fluent then error("[autofarm] Failed to load custom GUI from worker") end
 end
-if not Fluent then error("[autofarm] Failed to load Fluent UI") end
 
 -- ─── Anti-AFK ─────────────────────────────────────────────────────────────────
 local VU = game:GetService("VirtualUser")
@@ -1252,86 +1249,3 @@ Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
 Fluent:Notify({Title="Noob Incremental v8.0",Content="✅ Loaded | @Benefit",Duration=5})
 
--- ─── Mobile toggle button ─────────────────────────────────────────────────────
--- Draggable ☰ button always visible — tap to show/hide Fluent window.
--- Finds the Fluent ScreenGui and toggles its main frame.
-task.spawn(function()
-    task.wait(1)
-    pcall(function()
-        -- Find Fluent's ScreenGui in PlayerGui
-        local pGui    = LP:WaitForChild("PlayerGui", 5)
-        local fluentSG= nil
-        for _, sg in ipairs(pGui:GetChildren()) do
-            if sg:IsA("ScreenGui") and sg:FindFirstChild("Main") then
-                fluentSG = sg; break
-            end
-        end
-        if not fluentSG then return end
-
-        -- Build toggle button ScreenGui
-        local btnGui = Instance.new("ScreenGui")
-        btnGui.Name            = "BenefitToggle"
-        btnGui.ResetOnSpawn    = false
-        btnGui.DisplayOrder    = 999
-        btnGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
-        btnGui.IgnoreGuiInset  = true
-        btnGui.Parent          = pGui
-
-        local btn = Instance.new("TextButton")
-        btn.Name            = "Btn"
-        btn.Size            = UDim2.fromOffset(48, 48)
-        btn.Position        = UDim2.new(1, -58, 0.5, -24)
-        btn.AnchorPoint     = Vector2.new(0, 0)
-        btn.BackgroundColor3= Color3.fromRGB(30, 30, 35)
-        btn.TextColor3      = Color3.fromRGB(230, 230, 230)
-        btn.Font            = Enum.Font.GothamBold
-        btn.TextSize        = 22
-        btn.Text            = "☰"
-        btn.BorderSizePixel = 0
-        btn.ZIndex          = 10
-        btn.Parent          = btnGui
-
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 10)
-        corner.Parent = btn
-
-        -- Tap + drag support (MouseButton1Click unreliable on mobile)
-        local dragging, dragMoved, dragStart, startPos = false, false, nil, nil
-        local TAP_THRESH = 12  -- pixels of movement before it counts as drag
-
-        btn.InputBegan:Connect(function(inp)
-            if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then
-                dragging  = true
-                dragMoved = false
-                dragStart = inp.Position
-                startPos  = btn.Position
-            end
-        end)
-        btn.InputChanged:Connect(function(inp)
-            if not dragging then return end
-            if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseMovement then
-                local delta = inp.Position - dragStart
-                if delta.Magnitude > TAP_THRESH then
-                    dragMoved = true
-                    btn.Position = UDim2.new(
-                        startPos.X.Scale, startPos.X.Offset + delta.X,
-                        startPos.Y.Scale, startPos.Y.Offset + delta.Y
-                    )
-                end
-            end
-        end)
-        btn.InputEnded:Connect(function(inp)
-            if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then
-                if not dragMoved then
-                    -- fluentSG captured once at setup — Enabled=false doesn't destroy or reparent it
-                    if fluentSG and fluentSG.Parent then
-                        fluentSG.Enabled = not fluentSG.Enabled
-                        btn.Text = fluentSG.Enabled and "☰" or "▶"
-                    end
-                end
-                dragging  = false
-                dragMoved = false
-            end
-        end)
-    end)
-end)
