@@ -1268,24 +1268,14 @@ task.spawn(function()
         end
         if not fluentSG then return end
 
-        -- Toggle the entire ScreenGui.Enabled — reliable, Fluent can't override it
-        local function getFluentSG()
-            for _, sg in ipairs(pGui:GetChildren()) do
-                if sg ~= pGui:FindFirstChild("BenefitToggle")
-                    and sg:IsA("ScreenGui") and sg:FindFirstChild("Main") then
-                    return sg
-                end
-            end
-        end
-
         -- Build toggle button ScreenGui
-        local sg = Instance.new("ScreenGui")
-        sg.Name            = "BenefitToggle"
-        sg.ResetOnSpawn    = false
-        sg.DisplayOrder    = 999
-        sg.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
-        sg.IgnoreGuiInset  = true
-        sg.Parent          = pGui
+        local btnGui = Instance.new("ScreenGui")
+        btnGui.Name            = "BenefitToggle"
+        btnGui.ResetOnSpawn    = false
+        btnGui.DisplayOrder    = 999
+        btnGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+        btnGui.IgnoreGuiInset  = true
+        btnGui.Parent          = pGui
 
         local btn = Instance.new("TextButton")
         btn.Name            = "Btn"
@@ -1299,7 +1289,7 @@ task.spawn(function()
         btn.Text            = "☰"
         btn.BorderSizePixel = 0
         btn.ZIndex          = 10
-        btn.Parent          = sg
+        btn.Parent          = btnGui
 
         local corner = Instance.new("UICorner")
         corner.CornerRadius = UDim.new(0, 10)
@@ -1333,11 +1323,10 @@ task.spawn(function()
         btn.InputEnded:Connect(function(inp)
             if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then
                 if not dragMoved then
-                    -- tap (not drag) → toggle entire ScreenGui
-                    local fsg = getFluentSG()
-                    if fsg then
-                        fsg.Enabled = not fsg.Enabled
-                        btn.Text = fsg.Enabled and "☰" or "▶"
+                    -- fluentSG captured once at setup — Enabled=false doesn't destroy or reparent it
+                    if fluentSG and fluentSG.Parent then
+                        fluentSG.Enabled = not fluentSG.Enabled
+                        btn.Text = fluentSG.Enabled and "☰" or "▶"
                     end
                 end
                 dragging  = false
