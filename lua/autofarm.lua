@@ -1264,13 +1264,13 @@ task.spawn(function()
             end
         end
         if not fluentSG then return end
-        if not fluentSG:FindFirstChild("Main") then return end
 
-        -- Dynamic lookup so stale reference doesn't break toggle after Fluent rebuilds UI
-        local function getMainFrame()
+        -- Toggle the entire ScreenGui.Enabled — reliable, Fluent can't override it
+        local function getFluentSG()
             for _, sg in ipairs(pGui:GetChildren()) do
-                if sg:IsA("ScreenGui") and sg:FindFirstChild("Main") then
-                    return sg:FindFirstChild("Main")
+                if sg ~= pGui:FindFirstChild("BenefitToggle")
+                    and sg:IsA("ScreenGui") and sg:FindFirstChild("Main") then
+                    return sg
                 end
             end
         end
@@ -1330,11 +1330,11 @@ task.spawn(function()
         btn.InputEnded:Connect(function(inp)
             if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then
                 if not dragMoved then
-                    -- tap (not drag) → toggle window
-                    local mf = getMainFrame()
-                    if mf then
-                        mf.Visible = not mf.Visible
-                        btn.Text = mf.Visible and "☰" or "▶"
+                    -- tap (not drag) → toggle entire ScreenGui
+                    local fsg = getFluentSG()
+                    if fsg then
+                        fsg.Enabled = not fsg.Enabled
+                        btn.Text = fsg.Enabled and "☰" or "▶"
                     end
                 end
                 dragging  = false
