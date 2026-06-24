@@ -460,11 +460,14 @@ local function holdAndFire(ctype, enterCF, timeout)
     local prev=_lastCapsuleOpen
     local h=getHRP(); if not h then return false end
     h.CFrame=enterCF
-    -- conn must ALWAYS be disconnected — pcall guarantees it even on game disconnect
+    -- Heartbeat body wrapped in pcall: LEASE errors throw inside the callback,
+    -- not outside, so the outer pcall cannot catch them. On any error disconnect.
     local conn
     conn=RunService.Heartbeat:Connect(function()
-        if not workspace.Parent then conn:Disconnect(); return end
-        local h2=getHRP(); if h2 then h2.CFrame=enterCF end
+        local ok=pcall(function()
+            local h2=getHRP(); if h2 then h2.CFrame=enterCF end
+        end)
+        if not ok then pcall(conn.Disconnect,conn) end
     end)
     local ok,result=pcall(function()
         task.wait(0.25)
@@ -473,7 +476,7 @@ local function holdAndFire(ctype, enterCF, timeout)
         while _lastCapsuleOpen==prev and tick()<deadline do task.wait(0.05) end
         return _lastCapsuleOpen~=prev
     end)
-    conn:Disconnect()
+    pcall(conn.Disconnect,conn)
     return ok and result or false
 end
 
