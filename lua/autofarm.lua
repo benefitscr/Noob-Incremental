@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════════╗
 -- ║  Noob Incremental Autofarm  v8.0  @Benefit                       ║
--- ║  Fluent UI · Optimized · Stable · No external timeouts           ║
+-- ║  Custom GUI · Optimized · Stable · No external UI dependencies   ║
 -- ╚══════════════════════════════════════════════════════════════════╝
 
 -- ─── Services ─────────────────────────────────────────────────────────────────
