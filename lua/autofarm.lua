@@ -460,16 +460,21 @@ local function holdAndFire(ctype, enterCF, timeout)
     local prev=_lastCapsuleOpen
     local h=getHRP(); if not h then return false end
     h.CFrame=enterCF
-    -- Hold position every frame during the wait
-    local conn=RunService.Heartbeat:Connect(function()
+    -- conn must ALWAYS be disconnected — pcall guarantees it even on game disconnect
+    local conn
+    conn=RunService.Heartbeat:Connect(function()
+        if not workspace.Parent then conn:Disconnect(); return end
         local h2=getHRP(); if h2 then h2.CFrame=enterCF end
     end)
-    task.wait(0.25)
-    fire("OpenCapsule", ctype)
-    local deadline=tick()+timeout
-    while _lastCapsuleOpen==prev and tick()<deadline do task.wait(0.05) end
+    local ok,result=pcall(function()
+        task.wait(0.25)
+        fire("OpenCapsule", ctype)
+        local deadline=tick()+timeout
+        while _lastCapsuleOpen==prev and tick()<deadline do task.wait(0.05) end
+        return _lastCapsuleOpen~=prev
+    end)
     conn:Disconnect()
-    return _lastCapsuleOpen~=prev
+    return ok and result or false
 end
 
 local function getCapsulePart(ctype)
@@ -1259,8 +1264,16 @@ task.spawn(function()
             end
         end
         if not fluentSG then return end
-        local mainFrame = fluentSG:FindFirstChild("Main")
-        if not mainFrame then return end
+        if not fluentSG:FindFirstChild("Main") then return end
+
+        -- Dynamic lookup so stale reference doesn't break toggle after Fluent rebuilds UI
+        local function getMainFrame()
+            for _, sg in ipairs(pGui:GetChildren()) do
+                if sg:IsA("ScreenGui") and sg:FindFirstChild("Main") then
+                    return sg:FindFirstChild("Main")
+                end
+            end
+        end
 
         -- Build toggle button ScreenGui
         local sg = Instance.new("ScreenGui")
@@ -1318,8 +1331,11 @@ task.spawn(function()
             if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then
                 if not dragMoved then
                     -- tap (not drag) → toggle window
-                    mainFrame.Visible = not mainFrame.Visible
-                    btn.Text = mainFrame.Visible and "☰" or "▶"
+                    local mf = getMainFrame()
+                    if mf then
+                        mf.Visible = not mf.Visible
+                        btn.Text = mf.Visible and "☰" or "▶"
+                    end
                 end
                 dragging  = false
                 dragMoved = false
