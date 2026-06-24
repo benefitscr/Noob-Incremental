@@ -456,15 +456,16 @@ end
 local function holdAndFire(ctype, enterCF, timeout)
     local prev=_lastCapsuleOpen
     local h=getHRP(); if not h then return false end
-    h.CFrame=enterCF
-    -- Heartbeat body wrapped in pcall: LEASE errors throw inside the callback,
-    -- not outside, so the outer pcall cannot catch them. On any error disconnect.
-    local conn
-    conn=RunService.Heartbeat:Connect(function()
-        local ok=pcall(function()
-            local h2=getHRP(); if h2 then h2.CFrame=enterCF end
-        end)
-        if not ok then pcall(conn.Disconnect,conn) end
+    pcall(function() h.CFrame=enterCF end)
+    -- Re-snap loop via task.spawn — NOT Heartbeat, so LEASE errors cannot occur.
+    -- task.spawn runs in the main thread pool; CFrame sets there are safe.
+    local snapActive=true
+    task.spawn(function()
+        while snapActive do
+            local h2=getHRP()
+            if h2 then pcall(function() h2.CFrame=enterCF end) end
+            task.wait(0.05)
+        end
     end)
     local ok,result=pcall(function()
         task.wait(0.25)
@@ -473,7 +474,7 @@ local function holdAndFire(ctype, enterCF, timeout)
         while _lastCapsuleOpen==prev and tick()<deadline do task.wait(0.05) end
         return _lastCapsuleOpen~=prev
     end)
-    pcall(conn.Disconnect,conn)
+    snapActive=false
     return ok and result or false
 end
 
