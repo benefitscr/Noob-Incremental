@@ -456,26 +456,15 @@ end
 local function holdAndFire(ctype, enterCF, timeout)
     local prev=_lastCapsuleOpen
     local h=getHRP(); if not h then return false end
+    -- Single snap into zone. capsuleBusy=true (set by caller) blocks mining/ice
+    -- from moving the character, so no continuous re-snap is needed.
+    -- No Heartbeat, no spawned loops — zero LEASE risk.
     pcall(function() h.CFrame=enterCF end)
-    -- Re-snap loop via task.spawn — NOT Heartbeat, so LEASE errors cannot occur.
-    -- task.spawn runs in the main thread pool; CFrame sets there are safe.
-    local snapActive=true
-    task.spawn(function()
-        while snapActive do
-            local h2=getHRP()
-            if h2 then pcall(function() h2.CFrame=enterCF end) end
-            task.wait(0.05)
-        end
-    end)
-    local ok,result=pcall(function()
-        task.wait(0.25)
-        fire("OpenCapsule", ctype)
-        local deadline=tick()+timeout
-        while _lastCapsuleOpen==prev and tick()<deadline do task.wait(0.05) end
-        return _lastCapsuleOpen~=prev
-    end)
-    snapActive=false
-    return ok and result or false
+    task.wait(0.25)
+    fire("OpenCapsule", ctype)
+    local deadline=tick()+timeout
+    while _lastCapsuleOpen==prev and tick()<deadline do task.wait(0.05) end
+    return _lastCapsuleOpen~=prev
 end
 
 local function getCapsulePart(ctype)
