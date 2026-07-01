@@ -104,7 +104,7 @@ local S = {
     runes=false, tier=false, awaken=false, upgradeQuest=false,
     prismEquip=false, autoCoinFarm=false, autoPrism=false, autoPot=false, autoGuildClaim=false,
     autoFbAll=false, autoFbTree=false, autoFbRank=false, autoFbTrophy=false, autoBuyNoob=false,
-    autoFbUpNoob=false, autoGoalUpg=false,
+    autoFbUpNoob=false, autoGoalUpg=false, autoKickBall=false,
     StarterTree=false, TycoonTree=false, FarmTree=false,
     PrismTree=false, IceTree=false, MiningTree=false,
     Ice=false, Fire=false, Blaze=false, Water=false, Oof=false,
@@ -144,7 +144,7 @@ local BOOL_KEYS = {
     "Bread","Cash","Coin","HackPoints","Gem",
     "autoPot","autoGuildClaim","autoCoinFarm","autoPrism",
     "autoFbAll","autoFbTree","autoFbRank","autoFbTrophy","autoBuyNoob",
-    "autoFbUpNoob","autoGoalUpg",
+    "autoFbUpNoob","autoGoalUpg","autoKickBall",
 }
 local function saveSettings()
     local lines = {
@@ -1025,6 +1025,18 @@ safeLoop(0.1, function()
     end
 end)
 
+-- Auto-kick ball → fire ScoreGoal to score goals = generate Goals (the football fuel).
+-- Own rate (independent of the tree/rank/trophy budget). Verified live: adds ~+50% Goals on top
+-- of passive noob income. Requires being in the Football/Soccer zone (server checks position).
+local KICK_RATE = 3
+local kickTokens, kickLast = KICK_RATE, tick()
+safeLoop(0.1, function()
+    if not (S.autoKickBall or S.autoFbAll) then return end
+    local now = tick()
+    kickTokens = math.min(KICK_RATE, kickTokens + (now - kickLast) * KICK_RATE); kickLast = now
+    while kickTokens >= 1 do kickTokens = kickTokens - 1; fire("ScoreGoal") end
+end)
+
 -- Auto-buy noobs — standing on _Zone_Buy_Noob BUYS a new (locked) noob if affordable
 -- (upgrading is a SEPARATE button). Server-side & position-based (no remote) → we teleport
 -- onto the next locked noob's zone and the server buys it if the player can afford it.
@@ -1069,7 +1081,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.6 · @Benefit",
+    SubTitle    = "v8.7 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1497,6 +1509,12 @@ T:AddDropdown("goalUps",{Title="Что качать / пропускать",Valu
 T:AddToggle("goalUpg",{Title="Авто-качать выбранные Goal Upgrades",Default=S.autoGoalUpg}):OnChanged(function(v) S.autoGoalUpg=v; saveSettings() end)
 
 div(T)
+hdr(T,"⚽  Авто-пинок мячика")
+T:AddParagraph({Title="",Content="Бьёт по мячу (ScoreGoal) → фармит Goals (+~50% сверху пассива). Нужно стоять в футбольной зоне. Входит в AUTO FOOTBALL."})
+T:AddToggle("autoKick",{Title="⚽ Авто-пинок (ScoreGoal)",Default=S.autoKickBall}):OnChanged(function(v) S.autoKickBall=v; saveSettings() end)
+T:AddSlider("kickRate",{Title="Пинков в секунду",Default=KICK_RATE,Min=1,Max=15,Rounding=0}):OnChanged(function(v) KICK_RATE=math.max(1,v) end)
+
+div(T)
 hdr(T,"⚙️  Скорость (анти-рейтлимит)")
 T:AddParagraph({Title="",Content="Общий лимит покупок/сек на весь футбол-авто (дерево+ранг+трофеи). Ниже = безопаснее от кика, выше = быстрее. По умолчанию 5."})
 T:AddSlider("fbRate",{Title="Покупок в секунду",Default=FB_RATE,Min=1,Max=15,Rounding=0}):OnChanged(function(v) FB_RATE=math.max(1,v) end)
@@ -1517,5 +1535,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.6",Content="✅ Loaded | ⚽ Football auto (smart tree frontier) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v8.7",Content="✅ Loaded | ⚽ Football auto + ball auto-kick | @Benefit",Duration=5})
 
