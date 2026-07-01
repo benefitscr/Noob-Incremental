@@ -1061,7 +1061,7 @@ safeLoop(0.1, function()
     -- Each concern contributes at most one fire per rotation, so a stuck rank/trophy can't starve
     -- the tree (that was the "не качает таланты" bug). Total rate is still capped at FB_RATE/s.
     local actions = {}
-    if (S.autoFbAll or S.autoFbTree) and not saveMode then   -- saveMode: hold Goals for rank/trophy
+    if (S.autoFbAll or S.autoFbTree) then
         if next(FB_ML) ~= nil then
             -- SMART: fire only the buyable frontier (unlocked & not maxed), skipping excluded talents
             -- at fire-time (instant — no 4s-window +1 on excluded nodes).
@@ -1111,7 +1111,7 @@ safeLoop(0.1, function()
             end
         end
     end
-    if (S.autoFbAll or S.autoGoalUpg) and not saveMode then   -- saveMode: hold Goals for rank/trophy
+    if (S.autoFbAll or S.autoGoalUpg) then
         -- selected Goal-upgrades, or ALL of them under the master AUTO FOOTBALL toggle
         local gtargets = GOAL_UP_LABELS   -- ALL goal upgrades by default, no selection needed
         if #gtargets > 0 then
@@ -1163,6 +1163,18 @@ local function noobLocked(name)
     local u = n and n:FindFirstChild("Unlocked")
     return not (u and u.Value)
 end
+-- A noob is only BUYABLE once its unlock talent (requireFootballNode) is bought. If the talent isn't
+-- bought, the buy button isn't available → DON'T teleport there (that was moving us out of the zone).
+local NOOB_REQ = {}
+pcall(function()
+    local cfg = require(RS.Shared.Modules.Noobs); local list = cfg.List or cfg
+    for nm, e in pairs(list) do if type(e)=="table" and e.requireFootballNode then NOOB_REQ[nm]=e.requireFootballNode end end
+end)
+local function noobAvailable(name)
+    local req = NOOB_REQ[name]
+    if not req then return true end                 -- no talent gate → always available
+    return (fbLevels[req] or 0) >= 1                -- required unlock talent bought?
+end
 local function firstLockedNoobZone()
     if not NOOBS_FOLDER then return nil end
     for _, m in ipairs(NOOBS_FOLDER:GetChildren()) do
@@ -1179,7 +1191,7 @@ safeLoop(1, function()
     if NOOBS_FOLDER then
         for _, m in ipairs(NOOBS_FOLDER:GetChildren()) do
             local zz = m:FindFirstChild("_Zone_Buy_Noob")
-            if zz and noobLocked(m.Name) and not sBlocked("nb:"..m.Name) then z, nm = zz, m.Name; break end
+            if zz and noobLocked(m.Name) and noobAvailable(m.Name) and not sBlocked("nb:"..m.Name) then z, nm = zz, m.Name; break end
         end
     end
     if not z then return end
@@ -1205,7 +1217,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v9.5 · @Benefit",
+    SubTitle    = "v9.6 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1659,5 +1671,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v9.5",Content="✅ Loaded | ⚽ FULL AUTO (1 toggle, all default) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v9.6",Content="✅ Loaded | ⚽ FULL AUTO (fixed: noob gate + no stall) | @Benefit",Duration=5})
 
