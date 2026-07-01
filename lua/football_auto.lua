@@ -1,17 +1,16 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
---  Noob Incremental · FOOTBALL AUTO  —  clean build  ·  @Benefit
+--  Noob Incremental · FOOTBALL AUTO  —  clean build v2  ·  @Benefit
 --
---  One toggle → overnight football farm. It auto-kicks the ball for Goals, then BUYS
---  in priority order:  rank → trophy → goal-upgrades → talents → noob-upgrades.
---
---  It is smart WITHOUT fragile big-number math: every buy is fired ONCE, then a moment
---  later it checks whether that thing's level actually went up.
---    • went up  → keep buying it (affordable).
---    • no change → it's unaffordable/maxed → EXPONENTIAL back-off (8,16,…,60s).
---  So when you hit a progression wall it goes quiet and just waits — NO "Not enough
---  Goals" spam, NO idle freeze — and the instant income makes something affordable it
---  buys it and resets. "Not enough" popups are also hidden at the source, and re-loading
---  cleanly replaces the previous copy (no stacked loops).
+--  One toggle → smart overnight football farm. Auto-kicks the ball for Goals, and:
+--    • RANK & TROPHY are ALWAYS the priority. If one is affordable it buys it at once.
+--    • If it isn't affordable yet, it SAVES for it — stops spending on everything else
+--      and just banks Goals (you stay AFK at the ball) until it can buy it.
+--    • Only if a target is a long way off (no buy after ~5 min of saving) does it briefly
+--      BUILD income (buy useful talents) then go back to saving — so it never hoards
+--      forever for something unreachable, and never freezes.
+--    • NEVER buys your excluded/"trash" talents (loaded from your saved cfg).
+--  Affordability is judged by result (fire once → did the level rise?), never by fragile
+--  big-number math. "Not enough" popups are hidden, and reloading replaces the old copy.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 local Players = game:GetService("Players")
@@ -19,7 +18,7 @@ local RS      = game:GetService("ReplicatedStorage")
 local UIS     = game:GetService("UserInputService")
 local LP      = Players.LocalPlayer
 
--- ── single-instance guard (reloading stops the old copy instead of stacking) ──────
+-- ── single-instance guard ──────────────────────────────────────────────────────
 _G.__NIF = (_G.__NIF or 0) + 1
 local GEN = _G.__NIF
 local function alive() return _G.__NIF == GEN end
@@ -28,13 +27,13 @@ local function loop(sec, fn)
     task.spawn(function() while alive() do pcall(fn); task.wait(sec) end end)
 end
 
--- ── anti-AFK ──────────────────────────────────────────────────────────────────────
+-- ── anti-AFK ────────────────────────────────────────────────────────────────────
 pcall(function()
     local VU = game:GetService("VirtualUser")
     LP.Idled:Connect(function() VU:CaptureController(); VU:ClickButton2(Vector2.new()) end)
 end)
 
--- ── wait for networking ───────────────────────────────────────────────────────────
+-- ── wait for networking ─────────────────────────────────────────────────────────
 local MR, GET
 do
     local deadline = tick() + 30
@@ -54,7 +53,7 @@ local function playerData()
     if ok then return d end
 end
 
--- ── config: counts, goal-upgrade keys, noob unlock talents, tree unlock graph ─────
+-- ── config ──────────────────────────────────────────────────────────────────────
 local TREE = require(RS.Shared.Modules.UIFootballTree)
 local RANK_MAX, TROPHY_MAX = 6, 10
 pcall(function() RANK_MAX   = #require(RS.Shared.Modules.FootballRankings).List end)
@@ -75,9 +74,27 @@ pcall(function()
     end
 end)
 
+-- ── excluded talents ("НЕ качать") — baked default = your saved banlist, but the cfg wins ──
+local EXCLUDED = {
+    PRuneSpeed = true, PRuneBulk = true, B3_WaterMulti = true, B2_OofMul = true, B3_GemMulti = true,
+    B2_GemMul = true, B3_HackPointMul = true, B2_HackPointMul = true, B3_PlankMulti = true,
+    B3_MineralMul = true, B2_PrismMul = true, B3_OreDamage = true, B3_AuraLuck = true,
+    B2_PrismMul2 = true, B3_OofMulti = true, B3_PrismMult = true,
+}
+pcall(function()
+    if isfile and isfile("noob_incremental_v8.cfg") then
+        local line = (readfile("noob_incremental_v8.cfg")):match("excludedTalents=([^\r\n]*)")
+        if line and #line > 0 then
+            EXCLUDED = {}
+            for n in line:gmatch("[^,]+") do EXCLUDED[n] = true end
+        end
+    end
+end)
+
+-- ── tree unlock graph ─────────────────────────────────────────────────────────────
 local NODE_ML, PARENTS = {}, {}
 for name, node in pairs(TREE.Nodes) do NODE_ML[name] = node.maxLevel or 1 end
-for name, node in pairs(TREE.Nodes) do            -- node.unlocks = children it opens once level >= 1
+for name, node in pairs(TREE.Nodes) do
     if type(node.unlocks) == "table" then
         for _, child in ipairs(node.unlocks) do
             PARENTS[child] = PARENTS[child] or {}
@@ -88,12 +105,12 @@ end
 local treeLv, goalLv = {}, {}
 local function nodeUnlocked(name)
     local ps = PARENTS[name]
-    if not ps then return true end               -- root (TheStart) has no parent
+    if not ps then return true end
     for _, p in ipairs(ps) do if (treeLv[p] or 0) >= 1 then return true end end
     return false
 end
 
--- ── live values (rank/trophy/noobs are replicated objects → instant reads) ─────────
+-- ── live values ────────────────────────────────────────────────────────────────
 local FEAT     = LP:FindFirstChild("FEATURES")
 local NOOBS_F  = FEAT and FEAT:FindFirstChild("NOOBS")
 local RANK_V   = FEAT and FEAT:FindFirstChild("FOOTBALL_RANKING") and FEAT.FOOTBALL_RANKING:FindFirstChild("RankingBought")
@@ -111,7 +128,7 @@ local function noobBought(nm)
     return u ~= nil and u.Value == true
 end
 
--- ── result-detection + exponential back-off (the anti-spam brain) ─────────────────
+-- ── result-detection + exponential back-off ───────────────────────────────────────
 local stall, fail, snap = {}, {}, {}
 local PEND, BACKOFF_MAX = 3, 60
 local function blocked(id) local u = stall[id]; return u ~= nil and tick() < u end
@@ -125,25 +142,55 @@ local function levelOf(id)
     end
     return 0
 end
-local function attempt(id, go)                    -- fire once, snapshot level, block until resolved
+local function attempt(id, go)
     snap[id] = levelOf(id)
     go()
     stall[id] = tick() + PEND
 end
-local function resolve(id)                        -- called ~2s later: did the level rise?
+local function resolve(id)
     if snap[id] ~= nil and levelOf(id) <= snap[id] then
         fail[id]  = (fail[id] or 0) + 1
         stall[id] = tick() + math.min(BACKOFF_MAX, PEND * 2 ^ math.min(fail[id], 6))
     else
         fail[id]  = nil
-        stall[id] = nil                           -- progressed → let it buy again
+        stall[id] = nil
     end
 end
 
--- ── state + refresh (every 2s: pull tree/goal levels, resolve last cycle's attempts) ─
+-- ── hide "Not enough X" popups AT THE SOURCE (connect EARLY, before any buying) ────
+pcall(function()
+    local fs = LP:WaitForChild("PlayerGui"):WaitForChild("FullScreen", 12)
+    local popups = fs and fs:WaitForChild("Popups", 12)
+    if not popups then return end
+    local known = {}
+    for _, c in ipairs(popups:GetChildren()) do known[c] = true end   -- never touch pre-existing template(s)
+    popups.ChildAdded:Connect(function(child)
+        if not alive() or not child:IsA("GuiObject") or known[child] then return end
+        task.spawn(function()
+            local t = tick()
+            while tick() - t < 0.6 do
+                local hit = false
+                pcall(function()
+                    for _, d in ipairs(child:GetDescendants()) do
+                        if d:IsA("TextLabel") and type(d.Text) == "string" and d.Text:lower():find("not enough") then
+                            hit = true; break
+                        end
+                    end
+                end)
+                if hit then pcall(function() child:Destroy() end); return end
+                task.wait(0.05)
+            end
+        end)
+    end)
+end)
+
+-- ── state + refresh (2s: pull levels, resolve attempts, watch rank/trophy progress) ─
 local S = { on = true, buyNoobs = true }
 local boughtNoobs = {}
 local pending = {}
+local phaseStart = tick()          -- start of the current save (or build) phase
+local mode = "save"                -- "save" | "build"
+local prevRank, prevTrophy = rankNow(), trophyNow()
 loop(2, function()
     if not S.on then return end
     local d = playerData()
@@ -160,38 +207,58 @@ loop(2, function()
     end
     local p = pending; pending = {}
     for id in pairs(p) do resolve(id) end
+    local r, t = rankNow(), trophyNow()          -- bought a rank/trophy → restart the save window for the next one
+    if r > prevRank or t > prevTrophy then mode = "save"; phaseStart = tick() end
+    prevRank, prevTrophy = r, t
 end)
 
--- ── buy scheduler (priority order; only non-blocked; rate-limited) ─────────────────
+-- ── the brain: priority + smart save / build ──────────────────────────────────────
+local SAVE_MAX, BUILD_TIME = 300, 90
 local MAX_PER_TICK = 2
 local statusText = "starting…"
 loop(0.4, function()
     if not S.on then statusText = "OFF"; return end
+    local priorityPending = (rankNow() < RANK_MAX) or (trophyNow() < TROPHY_MAX)
+    -- decide phase
+    if not priorityPending then
+        mode = "build"
+    elseif mode == "save" and tick() - phaseStart > SAVE_MAX then
+        mode = "build"; phaseStart = tick()
+    elseif mode == "build" and tick() - phaseStart > BUILD_TIME then
+        mode = "save"; phaseStart = tick()
+    end
+    -- candidates in priority order
     local cands = {}
     if rankNow()   < RANK_MAX   then cands[#cands + 1] = { "rank",   function() fire("BuyFootballRanking", rankNow() + 1) end } end
     if trophyNow() < TROPHY_MAX then cands[#cands + 1] = { "trophy", function() fire("BuyTrophy", trophyNow() + 1) end } end
-    for _, k in ipairs(GOAL_KEYS) do
-        cands[#cands + 1] = { "g:" .. k, function() fire("UpgradeUpgradeMax", "Goals", k) end }
-    end
-    for name, ml in pairs(NODE_ML) do
-        if (treeLv[name] or 0) < ml and nodeUnlocked(name) then
-            cands[#cands + 1] = { "t:" .. name, function() fire("BuyFootballUITreeNode", name) end }
+    if mode == "build" or not priorityPending then       -- only spend on the rest when NOT saving
+        for _, k in ipairs(GOAL_KEYS) do
+            cands[#cands + 1] = { "g:" .. k, function() fire("UpgradeUpgradeMax", "Goals", k) end }
         end
-    end
-    for _, nm in ipairs(boughtNoobs) do
-        cands[#cands + 1] = { "u:" .. nm, function() fire("UpgradeNoobMax", nm) end }
+        for name, ml in pairs(NODE_ML) do
+            if not EXCLUDED[name] and (treeLv[name] or 0) < ml and nodeUnlocked(name) then
+                cands[#cands + 1] = { "t:" .. name, function() fire("BuyFootballUITreeNode", name) end }
+            end
+        end
+        for _, nm in ipairs(boughtNoobs) do
+            cands[#cands + 1] = { "u:" .. nm, function() fire("UpgradeNoobMax", nm) end }
+        end
     end
     local fired = 0
     for _, c in ipairs(cands) do
         if fired >= MAX_PER_TICK then break end
-        if not blocked(c[1]) then
-            attempt(c[1], c[2]); pending[c[1]] = true; fired = fired + 1
-        end
+        if not blocked(c[1]) then attempt(c[1], c[2]); pending[c[1]] = true; fired = fired + 1 end
     end
-    statusText = fired > 0 and ("buying (" .. fired .. "/tick)") or "waiting — banking Goals for the next upgrade"
+    if not priorityPending then
+        statusText = "rank & trophy maxed — buying everything else"
+    elseif mode == "save" then
+        statusText = string.format("SAVING for rank/trophy — banking Goals (%ds)", math.floor(tick() - phaseStart))
+    else
+        statusText = string.format("target far → building income %ds", math.max(0, math.floor(BUILD_TIME - (tick() - phaseStart))))
+    end
 end)
 
--- ── auto-kick the ball = income (only when idle & a ball exists → no conflicts) ────
+-- ── auto-kick = income ─────────────────────────────────────────────────────────────
 local ballCtrl
 local function getCtrl()
     if ballCtrl then
@@ -211,7 +278,7 @@ loop(0.1, function()
     end
 end)
 
--- ── noob buy: WALK to the map button and back (tp only to recover if far) ──────────
+-- ── noob buy: WALK to the button and back — only while BUILDING (never mid-save) ──
 local GC        = workspace:FindFirstChild("__GAME_CONTENT")
 local NOOBS_MAP = GC and GC:FindFirstChild("Noobs")
 local function getHRP() local ch = LP.Character; return ch and ch:FindFirstChild("HumanoidRootPart") end
@@ -219,16 +286,16 @@ local function getHum() local ch = LP.Character; return ch and ch:FindFirstChild
 local homeCF
 loop(1.5, function()
     if not (S.on and S.buyNoobs) or not NOOBS_MAP then return end
+    local priorityPending = (rankNow() < RANK_MAX) or (trophyNow() < TROPHY_MAX)
+    if priorityPending and mode == "save" then return end          -- don't walk off / spend while saving
     local c = getCtrl()
-    if c and c._inZone and getHRP() then homeCF = getHRP().CFrame end   -- remember the kick spot
+    if c and c._inZone and getHRP() then homeCF = getHRP().CFrame end
     local zone, nm
     for _, m in ipairs(NOOBS_MAP:GetChildren()) do
         local z   = m:FindFirstChild("_Zone_Buy_Noob")
         local req = NOOB_REQ[m.Name]
-        local talentDone = (not req) or ((treeLv[req] or 0) >= 1)     -- only if its unlock talent is bought
-        if z and talentDone and not noobBought(m.Name) and not blocked("nb:" .. m.Name) then
-            zone, nm = z, m.Name; break
-        end
+        local talentDone = (not req) or ((treeLv[req] or 0) >= 1)
+        if z and talentDone and not noobBought(m.Name) and not blocked("nb:" .. m.Name) then zone, nm = z, m.Name; break end
     end
     if not zone then return end
     local hrp, hum = getHRP(), getHum()
@@ -236,7 +303,7 @@ loop(1.5, function()
     local origin = homeCF or hrp.CFrame
     pcall(function()
         if (zone.Position - hrp.Position).Magnitude > 400 then
-            hrp.CFrame = CFrame.new(zone.Position + Vector3.new(0, 3, 0))   -- recovery TP only
+            hrp.CFrame = CFrame.new(zone.Position + Vector3.new(0, 3, 0))
         else
             hum:MoveTo(zone.Position)
             local t = tick()
@@ -245,7 +312,7 @@ loop(1.5, function()
                 task.wait(0.15)
             end
         end
-        task.wait(0.6)                                                  -- stand on the button → server buys
+        task.wait(0.6)
         local h2, hm2 = getHRP(), getHum()
         if h2 and hm2 then
             hm2:MoveTo(origin.Position)
@@ -254,7 +321,7 @@ loop(1.5, function()
                 local h = getHRP(); if not h or (h.Position - origin.Position).Magnitude < 7 then break end
                 task.wait(0.15)
             end
-            pcall(function() local h = getHRP(); if h then h.CFrame = origin end end)   -- snap exactly back
+            pcall(function() local h = getHRP(); if h then h.CFrame = origin end end)
         end
     end)
     if noobBought(nm) then
@@ -265,32 +332,7 @@ loop(1.5, function()
     end
 end)
 
--- ── suppress "Not enough X" popups at the source ──────────────────────────────────
-pcall(function()
-    local fs = LP:WaitForChild("PlayerGui"):WaitForChild("FullScreen", 10)
-    local popups = fs and fs:WaitForChild("Popups", 10)
-    if not popups then return end
-    popups.ChildAdded:Connect(function(child)
-        if not alive() or not child:IsA("GuiObject") then return end
-        task.spawn(function()
-            local t = tick()
-            while tick() - t < 0.5 do          -- the "Not enough X" text is set a frame or two after the clone appears
-                local hit = false
-                pcall(function()
-                    for _, d in ipairs(child:GetDescendants()) do
-                        if d:IsA("TextLabel") and type(d.Text) == "string" and d.Text:lower():find("not enough") then
-                            hit = true; break
-                        end
-                    end
-                end)
-                if hit then pcall(function() child:Destroy() end); return end
-                task.wait(0.05)
-            end
-        end)
-    end)
-end)
-
--- ── minimal GUI: FULL AUTO toggle + live status (so it's never "mysteriously idle") ─
+-- ── minimal GUI: FULL AUTO toggle + live status ───────────────────────────────────
 local gui = Instance.new("ScreenGui")
 gui.Name = "NIFootballAuto"; gui.ResetOnSpawn = false; gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 pcall(function() gui.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
@@ -298,7 +340,7 @@ if not gui.Parent then gui.Parent = LP:WaitForChild("PlayerGui") end
 _G.__NIF_gui = gui
 
 local frame = Instance.new("Frame"); frame.Parent = gui; frame.Active = true
-frame.Size = UDim2.fromOffset(260, 100); frame.Position = UDim2.fromOffset(24, 140)
+frame.Size = UDim2.fromOffset(276, 104); frame.Position = UDim2.fromOffset(24, 140)
 frame.BackgroundColor3 = Color3.fromRGB(18, 18, 24); frame.BorderSizePixel = 0
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
 
@@ -314,7 +356,7 @@ btn.Font = Enum.Font.GothamBold; btn.TextSize = 14; btn.BorderSizePixel = 0; btn
 Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
 local status = Instance.new("TextLabel"); status.Parent = frame
-status.Size = UDim2.new(1, -14, 0, 34); status.Position = UDim2.fromOffset(7, 62)
+status.Size = UDim2.new(1, -14, 0, 38); status.Position = UDim2.fromOffset(7, 62)
 status.BackgroundTransparency = 1; status.TextXAlignment = Enum.TextXAlignment.Left
 status.TextYAlignment = Enum.TextYAlignment.Top; status.TextWrapped = true
 status.Font = Enum.Font.Gotham; status.TextSize = 12; status.TextColor3 = Color3.fromRGB(205, 205, 205)
@@ -328,19 +370,17 @@ end
 btn.MouseButton1Click:Connect(function() S.on = not S.on; paint() end)
 paint()
 
-do  -- drag
-    local dragging, offset
+do
+    local dragging, off
     frame.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true; offset = Vector2.new(i.Position.X, i.Position.Y) - frame.AbsolutePosition
-        end
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; off = Vector2.new(i.Position.X, i.Position.Y) - frame.AbsolutePosition end
     end)
     frame.InputEnded:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
     end)
     UIS.InputChanged:Connect(function(i)
         if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
-            frame.Position = UDim2.fromOffset(i.Position.X - offset.X, i.Position.Y - offset.Y)
+            frame.Position = UDim2.fromOffset(i.Position.X - off.X, i.Position.Y - off.Y)
         end
     end)
 end
@@ -352,5 +392,5 @@ loop(0.4, function()
 end)
 
 pcall(function()
-    game:GetService("StarterGui"):SetCore("SendNotification", { Title = "Football Auto", Text = "Loaded — FULL AUTO on", Duration = 4 })
+    game:GetService("StarterGui"):SetCore("SendNotification", { Title = "Football Auto", Text = "Loaded — priority: save for rank/trophy", Duration = 5 })
 end)
