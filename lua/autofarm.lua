@@ -431,6 +431,7 @@ local function refreshFbLevels()
     if ok and data and type(data.FOOTBALL_UI_UPGRADE_TREE)=="table" then fbLevels = data.FOOTBALL_UI_UPGRADE_TREE end
 end
 local fbFrontier = {}
+local fbPriorityNode = nil
 local function computeFbFrontier()
     if next(FB_ML)==nil then buildFbGraph() end          -- module Nodes may have been lazy at load
     local out = {}
@@ -444,6 +445,22 @@ local function computeFbFrontier()
         end
     end
     fbFrontier = out
+    -- Priority: a noob-unlock talent (UnlockNoob*) whose cost is within +10% of the cheapest frontier
+    -- node → buy the noob FIRST (noobs generate income, so unlocking them early compounds).
+    fbPriorityNode = nil
+    local minCost, costs = math.huge, {}
+    for _, name in ipairs(out) do
+        local node = FB_MODULE and FB_MODULE.Nodes and FB_MODULE.Nodes[name]
+        if node and node.getCost then
+            local ok, c = pcall(function() return node.getCost(fbLevels[name] or 0) end)
+            if ok and type(c)=="number" then costs[name]=c; if c < minCost then minCost=c end end
+        end
+    end
+    if minCost < math.huge then
+        for _, name in ipairs(out) do
+            if name:find("^UnlockNoob") and costs[name] and costs[name] <= minCost*1.1 then fbPriorityNode=name; break end
+        end
+    end
 end
 
 -- Hide capsule opening UI overlay
@@ -1036,6 +1053,11 @@ safeLoop(0.1, function()
             -- at fire-time (instant — no 4s-window +1 on excluded nodes).
             if #fbFrontier > 0 then
                 actions[#actions+1] = function()
+                    -- cost-comparable noob-unlock first (income compounds), else round-robin
+                    local pn = fbPriorityNode
+                    if pn and not excludedTalents[pn] and not sBlocked("t:"..pn) then
+                        sMark("t:"..pn); fire("BuyFootballUITreeNode", pn); return
+                    end
                     for _=1,#fbFrontier do
                         fbCursor = (fbCursor % #fbFrontier) + 1
                         local name = fbFrontier[fbCursor]
@@ -1075,11 +1097,16 @@ safeLoop(0.1, function()
             end
         end
     end
-    if (S.autoFbAll or S.autoGoalUpg) and #selectedGoalUps > 0 then
-        actions[#actions+1] = function()
-            goalUpCursor = (goalUpCursor % #selectedGoalUps) + 1
-            local gk = GOAL_LABEL_TO_K[selectedGoalUps[goalUpCursor]]
-            if gk ~= nil then fire("UpgradeUpgradeMax", "Goals", gk) end
+    if (S.autoFbAll or S.autoGoalUpg) then
+        -- selected Goal-upgrades, or ALL of them under the master AUTO FOOTBALL toggle
+        local gtargets = selectedGoalUps
+        if #gtargets == 0 and S.autoFbAll then gtargets = GOAL_UP_LABELS end
+        if #gtargets > 0 then
+            actions[#actions+1] = function()
+                goalUpCursor = (goalUpCursor % #gtargets) + 1
+                local gk = GOAL_LABEL_TO_K[gtargets[goalUpCursor]]
+                if gk ~= nil then fire("UpgradeUpgradeMax", "Goals", gk) end
+            end
         end
     end
     local n = #actions
@@ -1132,7 +1159,7 @@ local function firstLockedNoobZone()
     return nil
 end
 safeLoop(1, function()
-    if not S.autoBuyNoob or capsuleBusy then return end
+    if not (S.autoBuyNoob or S.autoFbAll) or capsuleBusy then return end
     -- next LOCKED noob that isn't stalled (a noob that didn't unlock after a try is skipped 30s, so we
     -- don't keep teleporting to noobs that aren't available/affordable yet)
     local z, nm
@@ -1165,7 +1192,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v9.2 · @Benefit",
+    SubTitle    = "v9.3 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1621,5 +1648,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v9.2",Content="✅ Loaded | ⚽ Smart auto + rune unlock blocker | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v9.3",Content="✅ Loaded | ⚽ 1-toggle full auto (noob priority) | @Benefit",Duration=5})
 
