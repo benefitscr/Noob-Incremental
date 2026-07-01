@@ -910,7 +910,7 @@ task.spawn(function()
                 for _, rune in ipairs(selectedRunes) do
                     pcall(MR.FireServer,MR,"RollRune",rune)
                 end
-                task.wait(math.max(0.155,runeInterval))
+                task.wait(math.max(0.02,runeInterval))
             else task.wait(0.1) end
         end)
     end
@@ -1088,7 +1088,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.8 · @Benefit",
+    SubTitle    = "v8.9 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1266,7 +1266,7 @@ hdr(T,"🎲  Zone Roll")
 T:AddDropdown("runeZones",{Title="Active Zones",Values={"Basic","Super","Advanced","Cosmic Prism","Hacker","Snowy","Deepcore","Football"},Multi=true,Default=toDict(selectedRunes)}):OnChanged(function(v)
     selectedRunes={}; for k,_ in pairs(v) do selectedRunes[#selectedRunes+1]=k end; saveSettings()
 end)
-T:AddSlider("runeInt",{Title="Interval (s)  [min 0.155]",Default=math.max(runeInterval,0.155),Min=0.15,Max=2.0,Rounding=2}):OnChanged(function(v) runeInterval=v; saveSettings() end)
+T:AddSlider("runeInt",{Title="Interval (s)  [ниже = чаще, min 0.02]",Default=math.max(runeInterval,0.02),Min=0.02,Max=2.0,Rounding=3}):OnChanged(function(v) runeInterval=math.max(0.02,v); saveSettings() end)
 T:AddToggle("runeToggle",{Title="🎲  Auto Roll ON",Default=S.runes}):OnChanged(function(v) S.runes=v; saveSettings() end)
 
 div(T)
@@ -1541,5 +1541,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.8",Content="✅ Loaded | ⚽ Football auto + REAL ball auto-kick | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v8.9",Content="✅ Loaded | ⚽ Football + faster rune interval | @Benefit",Duration=5})
 
