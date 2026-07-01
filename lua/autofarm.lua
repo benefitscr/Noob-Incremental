@@ -104,6 +104,7 @@ local S = {
     runes=false, tier=false, awaken=false, upgradeQuest=false,
     prismEquip=false, autoCoinFarm=false, autoPrism=false, autoPot=false, autoGuildClaim=false,
     autoFbAll=false, autoFbTree=false, autoFbRank=false, autoFbTrophy=false, autoBuyNoob=false,
+    autoFbUpNoob=false, autoGoalUpg=false,
     StarterTree=false, TycoonTree=false, FarmTree=false,
     PrismTree=false, IceTree=false, MiningTree=false,
     Ice=false, Fire=false, Blaze=false, Water=false, Oof=false,
@@ -118,6 +119,8 @@ local iceTeleportWait    = 0.15
 local capsuleOpenWait    = 2.5
 local selectedOres       = {}
 local selectedNoobs      = {}
+local selectedFbUpNoobs  = {}
+local selectedGoalUps    = {}
 local selectedChest      = "Chest"
 local selectedMinCap     = "Classic"
 local prismEquipPat      = 1
@@ -141,6 +144,7 @@ local BOOL_KEYS = {
     "Bread","Cash","Coin","HackPoints","Gem",
     "autoPot","autoGuildClaim","autoCoinFarm","autoPrism",
     "autoFbAll","autoFbTree","autoFbRank","autoFbTrophy","autoBuyNoob",
+    "autoFbUpNoob","autoGoalUpg",
 }
 local function saveSettings()
     local lines = {
@@ -157,6 +161,8 @@ local function saveSettings()
     if #on>0 then lines[#lines+1]="toggles="..table.concat(on,",") end
     if #selectedRunes>0      then lines[#lines+1]="selectedRunes="..table.concat(selectedRunes,",") end
     if #selectedNoobs>0      then lines[#lines+1]="selectedNoobs="..table.concat(selectedNoobs,",") end
+    if #selectedFbUpNoobs>0  then lines[#lines+1]="selectedFbUpNoobs="..table.concat(selectedFbUpNoobs,",") end
+    if #selectedGoalUps>0    then lines[#lines+1]="selectedGoalUps="..table.concat(selectedGoalUps,"|") end
     if #selectedMilestones>0 then lines[#lines+1]="selectedMilestones="..table.concat(selectedMilestones,",") end
     if #selectedPotions>0    then lines[#lines+1]="selectedPotions="..table.concat(selectedPotions,",") end
     local ores={}
@@ -188,6 +194,10 @@ local function loadSettings()
                 selectedRunes={}; for r in v:gmatch("[^,]+") do selectedRunes[#selectedRunes+1]=r end
             elseif k=="selectedNoobs" and v~="" then
                 selectedNoobs={}; for r in v:gmatch("[^,]+") do selectedNoobs[#selectedNoobs+1]=r end
+            elseif k=="selectedFbUpNoobs" and v~="" then
+                selectedFbUpNoobs={}; for r in v:gmatch("[^,]+") do selectedFbUpNoobs[#selectedFbUpNoobs+1]=r end
+            elseif k=="selectedGoalUps" and v~="" then
+                selectedGoalUps={}; for r in v:gmatch("[^|]+") do selectedGoalUps[#selectedGoalUps+1]=r end
             elseif k=="selectedMilestones" and v~="" then
                 selectedMilestones={}; for r in v:gmatch("[^,]+") do selectedMilestones[#selectedMilestones+1]=r end
             elseif k=="selectedPotions" and v~="" then
@@ -340,6 +350,42 @@ local function fbBuyable(name)
     return r and true or false
 end
 local fbCursor = 1
+
+-- Football noob names (for UpgradeNoobMax) — from workspace Noobs folder (reliable at load) + fallback
+local FB_NOOB_NAMES={}
+do
+    local nf = GC:FindFirstChild("Noobs")
+    if nf then for _, m in ipairs(nf:GetChildren()) do FB_NOOB_NAMES[#FB_NOOB_NAMES+1]=m.Name end end
+    table.sort(FB_NOOB_NAMES)
+    if #FB_NOOB_NAMES==0 then
+        FB_NOOB_NAMES={"Goalkeeper","RightBack","LeftBack","RightCenterBack","LeftCenterBack","RightWing","LeftWing","Striker","AttackingMid","RightDefensiveMid","LeftDefensiveMid","Starter","Cooker","Farmer","Archer","Hacker 1","Hacker 2","Hacker 3","Hacker 4"}
+    end
+end
+
+-- Goal (base football) upgrades: Upgrades.List.Goals → selectable {k,label}; numeric fallback k=1..12
+local GOAL_UPS, GOAL_LABEL_TO_K, GOAL_UP_LABELS = {}, {}, {}
+pcall(function()
+    local UP = require(RS.Shared.Modules.Upgrades)
+    local list = UP and UP.List and UP.List.Goals
+    if type(list)=="table" then
+        local keys={}
+        for k in pairs(list) do keys[#keys+1]=k end
+        table.sort(keys, function(a,b)
+            if type(a)=="number" and type(b)=="number" then return a<b end
+            return tostring(a)<tostring(b)
+        end)
+        for _, k in ipairs(keys) do
+            local v=list[k]; local title
+            if type(v)=="table" then title=v.title or v.name or v.Name or v.desc end
+            local label=tostring(k)..(title and (" · "..tostring(title)) or "")
+            GOAL_UPS[#GOAL_UPS+1]={k=k, label=label}; GOAL_LABEL_TO_K[label]=k
+        end
+    end
+end)
+if #GOAL_UPS==0 then
+    for i=1,12 do local label="Goal Upgrade "..i; GOAL_UPS[#GOAL_UPS+1]={k=i,label=label}; GOAL_LABEL_TO_K[label]=i end
+end
+for _,u in ipairs(GOAL_UPS) do GOAL_UP_LABELS[#GOAL_UP_LABELS+1]=u.label end
 
 -- Hide capsule opening UI overlay
 LP.PlayerGui.ChildAdded:Connect(function(child)
@@ -884,7 +930,7 @@ end)
 -- Rank & trophy buy only the NEXT one (not a 1..N spray); TrophyBought is read live so trophies
 -- auto-resume after a rank reset. Tree buys only IsNodeUnlocked nodes, round-robin, within budget.
 safeLoop(0.1, function()
-    if not (S.autoFbAll or S.autoFbTree or S.autoFbRank or S.autoFbTrophy) then return end
+    if not (S.autoFbAll or S.autoFbTree or S.autoFbRank or S.autoFbTrophy or S.autoFbUpNoob or S.autoGoalUpg) then return end
     -- 1. Rank — buy the next rank while under max (short-circuits before spending a token if done)
     if (S.autoFbAll or S.autoFbRank) and fbRank() < FB_RANK_MAX and fbAllow() then
         fire("BuyFootballRanking", fbRank()+1)
@@ -903,6 +949,23 @@ safeLoop(0.1, function()
             fbCursor = (fbCursor % #FB_NODES) + 1
             scans = scans + 1
             fire("BuyFootballUITreeNode", name)
+        end
+    end
+    -- 4. Football noob UPGRADES — UpgradeNoobMax for selected (like regular autoNoob), rate-limited
+    if (S.autoFbAll or S.autoFbUpNoob) and #selectedFbUpNoobs>0 then
+        for _, nm in ipairs(selectedFbUpNoobs) do
+            if not fbAllow() then break end
+            fire("UpgradeNoobMax", nm)
+        end
+    end
+    -- 5. Goal (base) upgrades — UpgradeUpgradeMax("Goals", k) for selected only, rate-limited
+    if (S.autoFbAll or S.autoGoalUpg) and #selectedGoalUps>0 then
+        for _, label in ipairs(selectedGoalUps) do
+            local gk = GOAL_LABEL_TO_K[label]
+            if gk ~= nil then
+                if not fbAllow() then break end
+                fire("UpgradeUpgradeMax", "Goals", gk)
+            end
         end
     end
 end)
@@ -951,7 +1014,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.3 · @Benefit",
+    SubTitle    = "v8.4 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1369,6 +1432,16 @@ T:AddToggle("fbTrophy",{Title="🏆 Трофеи — все 1.."..FB_TROPHY_COUN
 T:AddToggle("fbBuyNoob",{Title="🧍 Авто-покупка нубов (следующий залоченный)",       Default=S.autoBuyNoob }):OnChanged(function(v) S.autoBuyNoob=v; saveSettings() end)
 
 div(T)
+hdr(T,"🆙  Прокачка нубов (upgrade)")
+T:AddDropdown("fbUpNoobs",{Title="Каких качать",Values=FB_NOOB_NAMES,Multi=true,Default=toDict(selectedFbUpNoobs)}):OnChanged(function(v) selectedFbUpNoobs={}; for k in pairs(v) do selectedFbUpNoobs[#selectedFbUpNoobs+1]=k end; saveSettings() end)
+T:AddToggle("fbUpNoob",{Title="Авто-качать выбранных (UpgradeNoobMax)",Default=S.autoFbUpNoob}):OnChanged(function(v) S.autoFbUpNoob=v; saveSettings() end)
+
+div(T)
+hdr(T,"🥅  Goal Upgrades (базовые)")
+T:AddDropdown("goalUps",{Title="Что качать / пропускать",Values=GOAL_UP_LABELS,Multi=true,Default=toDict(selectedGoalUps)}):OnChanged(function(v) selectedGoalUps={}; for k in pairs(v) do selectedGoalUps[#selectedGoalUps+1]=k end; saveSettings() end)
+T:AddToggle("goalUpg",{Title="Авто-качать выбранные Goal Upgrades",Default=S.autoGoalUpg}):OnChanged(function(v) S.autoGoalUpg=v; saveSettings() end)
+
+div(T)
 hdr(T,"⚙️  Скорость (анти-рейтлимит)")
 T:AddParagraph({Title="",Content="Общий лимит покупок/сек на весь футбол-авто (дерево+ранг+трофеи). Ниже = безопаснее от кика, выше = быстрее. По умолчанию 5."})
 T:AddSlider("fbRate",{Title="Покупок в секунду",Default=FB_RATE,Min=1,Max=15,Rounding=0}):OnChanged(function(v) FB_RATE=math.max(1,v) end)
@@ -1389,5 +1462,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.3",Content="✅ Loaded | ⚽ Football auto (fixed tree) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v8.4",Content="✅ Loaded | ⚽ Football auto + noob/goal upgrades | @Benefit",Duration=5})
 
