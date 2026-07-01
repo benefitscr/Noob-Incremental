@@ -1025,16 +1025,23 @@ safeLoop(0.1, function()
     end
 end)
 
--- Auto-kick ball → fire ScoreGoal to score goals = generate Goals (the football fuel).
--- Own rate (independent of the tree/rank/trophy budget). Verified live: adds ~+50% Goals on top
--- of passive noob income. Requires being in the Football/Soccer zone (server checks position).
-local KICK_RATE = 3
-local kickTokens, kickLast = KICK_RATE, tick()
+-- Auto-kick ball → call the game's own _Kick controller = a REAL kick (RegisterFootballKick +
+-- ball animation + ScoreGoal + reward), exactly like a manual kick. Rate is gated naturally by
+-- ball flight/respawn (~1 kick / 1.5s); we reset _lastKick to skip the 5s manual cooldown.
+-- Verified live: the ball visibly kicks and Goals are credited. Requires being in the football zone.
+local BALL_CTRL
+local function getBallCtrl()
+    if BALL_CTRL then return BALL_CTRL end
+    pcall(function() BALL_CTRL = require(RS.Framework.Client).GetController("Ctrl_BallShootPrototype") end)
+    return BALL_CTRL
+end
 safeLoop(0.1, function()
     if not (S.autoKickBall or S.autoFbAll) then return end
-    local now = tick()
-    kickTokens = math.min(KICK_RATE, kickTokens + (now - kickLast) * KICK_RATE); kickLast = now
-    while kickTokens >= 1 do kickTokens = kickTokens - 1; fire("ScoreGoal") end
+    local c = getBallCtrl(); if not c then return end
+    if c._state == "idle" and c._ball then
+        c._lastKick = 0                       -- skip the 5s manual cooldown
+        pcall(function() c:_Kick() end)       -- real kick (visual + reward), auto-scores on landing
+    end
 end)
 
 -- Auto-buy noobs — standing on _Zone_Buy_Noob BUYS a new (locked) noob if affordable
@@ -1081,7 +1088,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.7 · @Benefit",
+    SubTitle    = "v8.8 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1510,9 +1517,8 @@ T:AddToggle("goalUpg",{Title="Авто-качать выбранные Goal Upgr
 
 div(T)
 hdr(T,"⚽  Авто-пинок мячика")
-T:AddParagraph({Title="",Content="Бьёт по мячу (ScoreGoal) → фармит Goals (+~50% сверху пассива). Нужно стоять в футбольной зоне. Входит в AUTO FOOTBALL."})
-T:AddToggle("autoKick",{Title="⚽ Авто-пинок (ScoreGoal)",Default=S.autoKickBall}):OnChanged(function(v) S.autoKickBall=v; saveSettings() end)
-T:AddSlider("kickRate",{Title="Пинков в секунду",Default=KICK_RATE,Min=1,Max=15,Rounding=0}):OnChanged(function(v) KICK_RATE=math.max(1,v) end)
+T:AddParagraph({Title="",Content="Реально бьёт по мячу (штатный удар: анимация + гол + награда), как ручной. Темп задаёт сам мяч (~удар в 1.5с). Нужно стоять в футбольной зоне. Входит в AUTO FOOTBALL."})
+T:AddToggle("autoKick",{Title="⚽ Авто-пинок мячика",Default=S.autoKickBall}):OnChanged(function(v) S.autoKickBall=v; saveSettings() end)
 
 div(T)
 hdr(T,"⚙️  Скорость (анти-рейтлимит)")
@@ -1535,5 +1541,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.7",Content="✅ Loaded | ⚽ Football auto + ball auto-kick | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v8.8",Content="✅ Loaded | ⚽ Football auto + REAL ball auto-kick | @Benefit",Duration=5})
 
