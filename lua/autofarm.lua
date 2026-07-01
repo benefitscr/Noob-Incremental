@@ -306,7 +306,12 @@ end
 local FB_MODULE
 pcall(function() FB_MODULE = require(RS.Shared.Modules.UIFootballTree) end)
 local FB_NODES={}
-if FB_MODULE and FB_MODULE.Nodes then for name in pairs(FB_MODULE.Nodes) do FB_NODES[#FB_NODES+1]=name end end
+if FB_MODULE and type(FB_MODULE.Nodes)=="table" then for name in pairs(FB_MODULE.Nodes) do FB_NODES[#FB_NODES+1]=name end end
+-- The module's Nodes table is EMPTY at autofarm load (the game fills it lazily) → showed "(0 нод)"
+-- and bought nothing. Bake in the 65 known node keys so the list is never empty. Server still validates.
+if #FB_NODES==0 then
+    FB_NODES={"TheStart","GoalsMulti1","GoalsMulti2","GoalsSpeed","GoalsMulti3","BigGoalMulti","GoalSpeed","GoalMulti1","GoalMulti2","PRuneBulk","PRuneSpeed","UnlockNoob2","UnlockNoob3","UnlockNoob4","UnlockNoob5","UnlockNoob6","UnlockNoob7","UnlockNoob8","UnlockNoob9","UnlockNoob10","UnlockNoob11","RuneLuckNode","RuneBulkNode","UnlockSoccerCapsule","SoccerCapsuleLuck","B3_HackPointMul","B3_OofMulti","B3_AutoNoob1","B3_AutoNoob2","B3_AutoNoob3","B3_AutoNoob4","B3_AutoNoob5","B3_AutoNoob6","B3_AutoNoob7","B3_AutoNoob8","B3_AutoNoob9","B3_AutoNoob10","B3_AutoNoob11","B3_UnlockNoobinials","B3_UnlockSoccerRune","B3_WaterMulti","B3_PlankMulti","B3_GemMulti","B3_AuraLuck","B3_MineralMul","B3_OreDamage","B3_GoalUpgradesFree","B3_RuneSpeed","B3_PrismMult","B3_RuneLuck","B3_TierLuck","B3_RuneBulk","B3_TierBulk","B2_RuneLuck","B2_RuneBulk","B2_RuneSpeed","B2_TierLuck","B2_TierBulk","B2_TierBulk2","B2_PrismMul","B2_HackPointMul","B2_OofMul","B2_GemMul","B2_PrismMul2","B2_GoalsMul"}
+end
 local FB_TROPHY_COUNT, FB_RANK_MAX = 10, 6
 pcall(function() FB_TROPHY_COUNT = #require(RS.Shared.Modules.Trophy).List end)
 pcall(function() FB_RANK_MAX = #require(RS.Shared.Modules.FootballRankings).List end)
@@ -888,17 +893,16 @@ safeLoop(0.1, function()
     if (S.autoFbAll or S.autoFbTrophy) and fbTrophies() < FB_TROPHY_COUNT and fbAllow() then
         fire("BuyTrophy", fbTrophies()+1)
     end
-    -- 3. Talents — scan a window of the tree, buy only buyable nodes, spend a token per buy only
+    -- 3. Talents — round-robin the whole tree, rate-limited (server buys the valid/affordable ones).
+    -- Buy-all is safe: the token-bucket caps volume so it can't rate-limit, and the server rejects
+    -- invalid buys. (Per-node IsNodeUnlocked filter is deferred until it can be verified live.)
     if (S.autoFbAll or S.autoFbTree) and #FB_NODES > 0 then
         local scans = 0
-        while scans < 12 do
+        while scans < 12 and fbAllow() do
             local name = FB_NODES[fbCursor]
             fbCursor = (fbCursor % #FB_NODES) + 1
             scans = scans + 1
-            if fbBuyable(name) then
-                if not fbAllow() then break end   -- out of budget this tick
-                fire("BuyFootballUITreeNode", name)
-            end
+            fire("BuyFootballUITreeNode", name)
         end
     end
 end)
@@ -947,7 +951,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.2 · @Benefit",
+    SubTitle    = "v8.3 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1385,5 +1389,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.2",Content="✅ Loaded | ⚽ Smart Football auto | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v8.3",Content="✅ Loaded | ⚽ Football auto (fixed tree) | @Benefit",Duration=5})
 
