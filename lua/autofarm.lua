@@ -122,6 +122,7 @@ local selectedNoobs      = {}
 local selectedFbUpNoobs  = {}
 local selectedGoalUps    = {}
 local excludedTalents    = {}
+local runeBlock          = {}
 local selectedChest      = "Chest"
 local selectedMinCap     = "Classic"
 local prismEquipPat      = 1
@@ -928,7 +929,9 @@ task.spawn(function()
         pcall(function()
             if S.runes and #selectedRunes>0 then
                 for _, rune in ipairs(selectedRunes) do
-                    pcall(MR.FireServer,MR,"RollRune",rune)
+                    if not (runeBlock[rune] and tick() < runeBlock[rune]) then   -- 60s post-unlock blocker
+                        pcall(MR.FireServer,MR,"RollRune",rune)
+                    end
                 end
                 task.wait(math.max(0.02,runeInterval))
             else task.wait(0.1) end
@@ -1009,6 +1012,10 @@ local function smartRefresh()
     for _,nm in ipairs(un) do cur["nu:"..nm]=noobLvl(nm) end
     for k in pairs(sFired) do
         if sPrev[k]~=nil and (cur[k] or 0)<=(sPrev[k] or 0) then sStall[k]=now+20 else sStall[k]=nil end
+    end
+    -- Rune unlock → block rolling that rune for 60s (a talent opens it; rolling immediately is wasteful)
+    for _, pr in ipairs({{"B3_UnlockSoccerRune","Football"},{"B3_UnlockNoobinials","Football"}}) do
+        if sPrev["t:"..pr[1]]~=nil and (sPrev["t:"..pr[1]] or 0)<1 and (fbLevels[pr[1]] or 0)>=1 then runeBlock[pr[2]]=now+60 end
     end
     sPrev=cur; sFired={}
 end
@@ -1158,7 +1165,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v9.1 · @Benefit",
+    SubTitle    = "v9.2 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1614,5 +1621,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v9.1",Content="✅ Loaded | ⚽ Smart affordability (no blind spam) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v9.2",Content="✅ Loaded | ⚽ Smart auto + rune unlock blocker | @Benefit",Duration=5})
 
