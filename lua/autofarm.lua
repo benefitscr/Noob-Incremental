@@ -302,18 +302,39 @@ local function currencyAmount(name)
     end)
     return ok and v or nil
 end
--- ─── Football auto-progress data ──────────────────────────────────────────────
+-- ─── Football auto-progress data + SMART rate-limiter ─────────────────────────
+local FB_MODULE
+pcall(function() FB_MODULE = require(RS.Shared.Modules.UIFootballTree) end)
 local FB_NODES={}
-pcall(function()
-    local t=require(RS.Shared.Modules.UIFootballTree)
-    if t and t.Nodes then for name in pairs(t.Nodes) do FB_NODES[#FB_NODES+1]=name end end
-end)
+if FB_MODULE and FB_MODULE.Nodes then for name in pairs(FB_MODULE.Nodes) do FB_NODES[#FB_NODES+1]=name end end
 local FB_TROPHY_COUNT, FB_RANK_MAX = 10, 6
 pcall(function() FB_TROPHY_COUNT = #require(RS.Shared.Modules.Trophy).List end)
 pcall(function() FB_RANK_MAX = #require(RS.Shared.Modules.FootballRankings).List end)
-local FB_RANK_V
-pcall(function() FB_RANK_V = LP.FEATURES.FOOTBALL_RANKING:FindFirstChild("RankingBought") end)
-local function fbRank() return FB_RANK_V and (tonumber(FB_RANK_V.Value) or 0) or 0 end
+local FB_RANK_V, FB_TROPHY_V
+pcall(function() FB_RANK_V   = LP.FEATURES.FOOTBALL_RANKING:FindFirstChild("RankingBought") end)
+pcall(function() FB_TROPHY_V = LP.FEATURES.TROPHY:FindFirstChild("TrophyBought") end)
+local function fbRank()     return FB_RANK_V   and (tonumber(FB_RANK_V.Value)   or 0) or 0 end
+local function fbTrophies() return FB_TROPHY_V and (tonumber(FB_TROPHY_V.Value) or 0) or 0 end
+
+-- Token-bucket rate limiter shared by ALL football auto fires → cannot trip server rate limits.
+local FB_RATE = 5                      -- fires/sec budget (tunable via slider on the Football tab)
+local fbTokens, fbLast = FB_RATE, tick()
+local function fbAllow()
+    local now = tick()
+    fbTokens = math.min(FB_RATE, fbTokens + (now - fbLast) * FB_RATE); fbLast = now
+    if fbTokens >= 1 then fbTokens = fbTokens - 1; return true end
+    return false
+end
+-- Game's own "is this node buyable right now?" check (prereqs met & not maxed).
+-- Falls back to true if the module API differs — the rate limiter still caps volume either way.
+local function fbBuyable(name)
+    if not FB_MODULE then return true end
+    local ok, r = pcall(function() return FB_MODULE.IsNodeUnlocked and FB_MODULE.IsNodeUnlocked(name) end)
+    if not ok then ok, r = pcall(function() return FB_MODULE:IsNodeUnlocked(name) end) end
+    if not ok then return true end
+    return r and true or false
+end
+local fbCursor = 1
 
 -- Hide capsule opening UI overlay
 LP.PlayerGui.ChildAdded:Connect(function(child)
@@ -853,22 +874,32 @@ task.spawn(function()
     end
 end)
 
--- Football auto-progress — Talents (tree) → Rank → Trophies
--- Trophies RESET when you rank up, so they're re-sprayed 1..N every cycle.
--- Rank is capped at FB_RANK_MAX; trophies run LAST so they end each cycle bought.
-safeLoop(0.8, function()
+-- Football auto-progress — SMART: rate-limited, buys only what's actually buyable.
+-- Fast 0.1s tick, but the token-bucket (FB_RATE/s) caps real fire volume → no rate-limit kicks.
+-- Rank & trophy buy only the NEXT one (not a 1..N spray); TrophyBought is read live so trophies
+-- auto-resume after a rank reset. Tree buys only IsNodeUnlocked nodes, round-robin, within budget.
+safeLoop(0.1, function()
     if not (S.autoFbAll or S.autoFbTree or S.autoFbRank or S.autoFbTrophy) then return end
-    -- 1. Talents = football skill-tree nodes (server validates state/affordability)
-    if (S.autoFbAll or S.autoFbTree) and #FB_NODES>0 then
-        for _, n in ipairs(FB_NODES) do fire("BuyFootballUITreeNode", n); task.wait(0.03) end
-    end
-    -- 2. Rank up — max FB_RANK_MAX (ranking resets trophies → do it before trophies)
-    if (S.autoFbAll or S.autoFbRank) and fbRank() < FB_RANK_MAX then
+    -- 1. Rank — buy the next rank while under max (short-circuits before spending a token if done)
+    if (S.autoFbAll or S.autoFbRank) and fbRank() < FB_RANK_MAX and fbAllow() then
         fire("BuyFootballRanking", fbRank()+1)
     end
-    -- 3. Trophies — spray 1..N to re-buy the ones a rank-up reset
-    if S.autoFbAll or S.autoFbTrophy then
-        for i=1, FB_TROPHY_COUNT do fire("BuyTrophy", i); task.wait(0.02) end
+    -- 2. Trophies — buy only the NEXT one; live TrophyBought means resets auto-resume
+    if (S.autoFbAll or S.autoFbTrophy) and fbTrophies() < FB_TROPHY_COUNT and fbAllow() then
+        fire("BuyTrophy", fbTrophies()+1)
+    end
+    -- 3. Talents — scan a window of the tree, buy only buyable nodes, spend a token per buy only
+    if (S.autoFbAll or S.autoFbTree) and #FB_NODES > 0 then
+        local scans = 0
+        while scans < 12 do
+            local name = FB_NODES[fbCursor]
+            fbCursor = (fbCursor % #FB_NODES) + 1
+            scans = scans + 1
+            if fbBuyable(name) then
+                if not fbAllow() then break end   -- out of budget this tick
+                fire("BuyFootballUITreeNode", name)
+            end
+        end
     end
 end)
 
@@ -916,7 +947,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.1 · @Benefit",
+    SubTitle    = "v8.2 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1334,6 +1365,11 @@ T:AddToggle("fbTrophy",{Title="🏆 Трофеи — все 1.."..FB_TROPHY_COUN
 T:AddToggle("fbBuyNoob",{Title="🧍 Авто-покупка нубов (следующий залоченный)",       Default=S.autoBuyNoob }):OnChanged(function(v) S.autoBuyNoob=v; saveSettings() end)
 
 div(T)
+hdr(T,"⚙️  Скорость (анти-рейтлимит)")
+T:AddParagraph({Title="",Content="Общий лимит покупок/сек на весь футбол-авто (дерево+ранг+трофеи). Ниже = безопаснее от кика, выше = быстрее. По умолчанию 5."})
+T:AddSlider("fbRate",{Title="Покупок в секунду",Default=FB_RATE,Min=1,Max=15,Rounding=0}):OnChanged(function(v) FB_RATE=math.max(1,v) end)
+
+div(T)
 hdr(T,"⚽  Football Rune & Capsule")
 T:AddParagraph({Title="",Content="Руна «Football» — во вкладке 🎲 Runes → Active Zones. Капсула «Football» (за Goals) — во вкладке ❄️ W2/Cap → Zone. Включи там нужные тумблеры (Auto Roll / Auto Capsule)."})
 
@@ -1349,5 +1385,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.1",Content="✅ Loaded | ⚽ Football auto | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v8.2",Content="✅ Loaded | ⚽ Smart Football auto | @Benefit",Duration=5})
 
