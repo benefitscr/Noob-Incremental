@@ -987,10 +987,34 @@ end)
 -- Fast 0.1s tick, but the token-bucket (FB_RATE/s) caps real fire volume → no rate-limit kicks.
 -- Rank & trophy buy only the NEXT one (not a 1..N spray); TrophyBought is read live so trophies
 -- auto-resume after a rank reset. Tree buys only IsNodeUnlocked nodes, round-robin, within budget.
--- Refresh football node levels + frontier every 4s while tree-auto is on (one server round-trip)
-safeLoop(4, function()
-    if not (S.autoFbAll or S.autoFbTree) then return end
-    refreshFbLevels(); computeFbFrontier()
+-- ─── SMART affordability via result-detection (no big-number math) ────────────
+-- Every ~3s read live state; anything we FIRED that did NOT progress (level/count didn't rise) is
+-- unaffordable or already maxed → stall it 20s. Stops blind spam on things you can't afford / maxed.
+local NOOBS_F; pcall(function() NOOBS_F = LP.FEATURES:FindFirstChild("NOOBS") end)
+local sStall, sFired, sPrev = {}, {}, {}
+local fbUnlockedNoobs = {}
+local function sBlocked(k) local u=sStall[k]; return u~=nil and tick()<u end
+local function sMark(k) sFired[k]=true end
+local function noobLvl(name) local n=NOOBS_F and NOOBS_F:FindFirstChild(name); local l=n and n:FindFirstChild("Level"); return l and (tonumber(l.Value) or 0) or 0 end
+local function smartRefresh()
+    local ok,data=pcall(function() return RS.__Net.GetPlayerData:InvokeServer() end)
+    if ok and data and type(data.FOOTBALL_UI_UPGRADE_TREE)=="table" then fbLevels=data.FOOTBALL_UI_UPGRADE_TREE end
+    computeFbFrontier()
+    local un={}
+    if NOOBS_F then for _,n in ipairs(NOOBS_F:GetChildren()) do local u=n:FindFirstChild("Unlocked"); if u and u.Value then un[#un+1]=n.Name end end end
+    fbUnlockedNoobs=un
+    local now=tick()
+    local cur={ rank=fbRank(), trophy=fbTrophies() }
+    for name in pairs(FB_ML) do cur["t:"..name]=fbLevels[name] or 0 end
+    for _,nm in ipairs(un) do cur["nu:"..nm]=noobLvl(nm) end
+    for k in pairs(sFired) do
+        if sPrev[k]~=nil and (cur[k] or 0)<=(sPrev[k] or 0) then sStall[k]=now+20 else sStall[k]=nil end
+    end
+    sPrev=cur; sFired={}
+end
+safeLoop(3, function()
+    if not (S.autoFbAll or S.autoFbTree or S.autoFbRank or S.autoFbTrophy or S.autoFbUpNoob or S.autoBuyNoob) then return end
+    smartRefresh()
 end)
 local fbUpCursor, goalUpCursor, fbTurn = 0, 0, 0
 safeLoop(0.1, function()
@@ -1008,7 +1032,9 @@ safeLoop(0.1, function()
                     for _=1,#fbFrontier do
                         fbCursor = (fbCursor % #fbFrontier) + 1
                         local name = fbFrontier[fbCursor]
-                        if not excludedTalents[name] then fire("BuyFootballUITreeNode", name); return end
+                        if not excludedTalents[name] and not sBlocked("t:"..name) then
+                            sMark("t:"..name); fire("BuyFootballUITreeNode", name); return
+                        end
                     end
                 end
             end
@@ -1023,16 +1049,23 @@ safeLoop(0.1, function()
             end
         end
     end
-    if (S.autoFbAll or S.autoFbRank) and fbRank() < FB_RANK_MAX then
-        actions[#actions+1] = function() fire("BuyFootballRanking", fbRank()+1) end
+    if (S.autoFbAll or S.autoFbRank) and fbRank() < FB_RANK_MAX and not sBlocked("rank") then
+        actions[#actions+1] = function() sMark("rank"); fire("BuyFootballRanking", fbRank()+1) end
     end
-    if (S.autoFbAll or S.autoFbTrophy) and fbTrophies() < FB_TROPHY_COUNT then
-        actions[#actions+1] = function() fire("BuyTrophy", fbTrophies()+1) end
+    if (S.autoFbAll or S.autoFbTrophy) and fbTrophies() < FB_TROPHY_COUNT and not sBlocked("trophy") then
+        actions[#actions+1] = function() sMark("trophy"); fire("BuyTrophy", fbTrophies()+1) end
     end
-    if (S.autoFbAll or S.autoFbUpNoob) and #selectedFbUpNoobs > 0 then
-        actions[#actions+1] = function()
-            fbUpCursor = (fbUpCursor % #selectedFbUpNoobs) + 1
-            fire("UpgradeNoobMax", selectedFbUpNoobs[fbUpCursor])
+    if (S.autoFbAll or S.autoFbUpNoob) then
+        -- upgrade ALL bought (unlocked) noobs; dropdown (if set) narrows it. Skip stalled = maxed/broke.
+        local targets = (#selectedFbUpNoobs>0) and selectedFbUpNoobs or fbUnlockedNoobs
+        if #targets > 0 then
+            actions[#actions+1] = function()
+                for _=1,#targets do
+                    fbUpCursor = (fbUpCursor % #targets) + 1
+                    local nm = targets[fbUpCursor]
+                    if not sBlocked("nu:"..nm) then sMark("nu:"..nm); fire("UpgradeNoobMax", nm); return end
+                end
+            end
         end
     end
     if (S.autoFbAll or S.autoGoalUpg) and #selectedGoalUps > 0 then
@@ -1093,7 +1126,16 @@ local function firstLockedNoobZone()
 end
 safeLoop(1, function()
     if not S.autoBuyNoob or capsuleBusy then return end
-    local z = firstLockedNoobZone(); if not z then return end
+    -- next LOCKED noob that isn't stalled (a noob that didn't unlock after a try is skipped 30s, so we
+    -- don't keep teleporting to noobs that aren't available/affordable yet)
+    local z, nm
+    if NOOBS_FOLDER then
+        for _, m in ipairs(NOOBS_FOLDER:GetChildren()) do
+            local zz = m:FindFirstChild("_Zone_Buy_Noob")
+            if zz and noobLocked(m.Name) and not sBlocked("nb:"..m.Name) then z, nm = zz, m.Name; break end
+        end
+    end
+    if not z then return end
     local hrp = getHRP(); if not hrp then return end
     capsuleBusy = true                              -- block mining/ice from moving us mid-buy
     local origin = hrp.CFrame
@@ -1104,10 +1146,11 @@ safeLoop(1, function()
         if typeof(firetouchinterest) == "function" then
             pcall(firetouchinterest, h, z, 0); task.wait(0.05); pcall(firetouchinterest, h, z, 1)
         end
-        task.wait(0.2)
+        task.wait(0.3)
     end)
     local h = getHRP(); if h then h.CFrame = origin end
     capsuleBusy = false                             -- always released
+    if noobLocked(nm) then sStall["nb:"..nm] = tick() + 30 end   -- didn't buy → not available now → skip 30s
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -1115,7 +1158,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v9.0 · @Benefit",
+    SubTitle    = "v9.1 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1571,5 +1614,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v9.0",Content="✅ Loaded | ⚽ Football + talent exclude list | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v9.1",Content="✅ Loaded | ⚽ Smart affordability (no blind spam) | @Benefit",Duration=5})
 
