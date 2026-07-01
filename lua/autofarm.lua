@@ -128,7 +128,11 @@ local selectedMinCap     = "Classic"
 local prismEquipPat      = 1
 local prismThreshold     = 3
 local coinInterval       = 60
-local RECHECK            = 5    -- re-check stalled (unaffordable / not-yet-unlocked) items every 5s
+local RECHECK            = 5    -- base re-check window for not-yet-unlocked noobs
+local PEND               = 4    -- after firing a buy, block re-firing it until the result is known (no bursts)
+local BACKOFF_MAX        = 180  -- a buy that keeps failing (unaffordable/maxed) backs off EXPONENTIALLY up to this many
+                                -- seconds, so a progression wall makes NO "Not enough Goals" spam; it retries rarely and
+                                -- the instant income makes it affordable, the buy succeeds and its back-off resets to 0
 local selectedMilestones = {}
 local selectedPotions    = {}
 local manualRuneLuck     = nil
@@ -1014,10 +1018,10 @@ end)
 -- unaffordable or already maxed → stall it RECHECK(5)s, then retry. Balances "no blind spam" with
 -- "react fast when income catches up" — the token-bucket (FB_RATE/s) still caps total fire volume.
 local NOOBS_F; pcall(function() NOOBS_F = LP.FEATURES:FindFirstChild("NOOBS") end)
-local sStall, sFired, sPrev = {}, {}, {}
+local sStall, sFired, sPrev, sFail = {}, {}, {}, {}
 local fbUnlockedNoobs = {}
 local function sBlocked(k) local u=sStall[k]; return u~=nil and tick()<u end
-local function sMark(k) sFired[k]=true end
+local function sMark(k) sFired[k]=true; sStall[k]=tick()+PEND end  -- fire-once: block until result known
 local function noobLvl(name) local n=NOOBS_F and NOOBS_F:FindFirstChild(name); local l=n and n:FindFirstChild("Level"); return l and (tonumber(l.Value) or 0) or 0 end
 local function smartRefresh()
     local ok,data=pcall(function() return RS.__Net.GetPlayerData:InvokeServer() end)
@@ -1033,7 +1037,12 @@ local function smartRefresh()
     for _,nm in ipairs(un) do cur["nu:"..nm]=noobLvl(nm) end
     for _,u in ipairs(GOAL_UPS) do cur["gu:"..tostring(u.k)]=tonumber(goalLevels[u.k]) or 0 end
     for k in pairs(sFired) do
-        if sPrev[k]~=nil and (cur[k] or 0)<=(sPrev[k] or 0) then sStall[k]=now+RECHECK else sStall[k]=nil end
+        if sPrev[k]~=nil and (cur[k] or 0)<=(sPrev[k] or 0) then
+            sFail[k]=(sFail[k] or 0)+1                                   -- no progress → unaffordable/maxed
+            sStall[k]=now+math.min(BACKOFF_MAX, PEND*(2^math.min(sFail[k],6)))   -- exponential back-off (8,16,32…180s)
+        else
+            sFail[k]=nil; sStall[k]=nil                                  -- progressed → reset, keep buying
+        end
     end
     -- Rune unlock → block rolling that rune for 60s (a talent opens it; rolling immediately is wasteful)
     for _, pr in ipairs({{"B3_UnlockSoccerRune","Football"},{"B3_UnlockNoobinials","Football"}}) do
@@ -1261,7 +1270,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v10.0 · @Benefit",
+    SubTitle    = "v10.1 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1715,5 +1724,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v10.0",Content="✅ Loaded | ⚽ FULL AUTO (always-progress, no freeze) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v10.1",Content="✅ Loaded | ⚽ FULL AUTO (no freeze, no wall-spam) | @Benefit",Duration=5})
 
