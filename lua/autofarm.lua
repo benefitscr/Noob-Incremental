@@ -1012,6 +1012,7 @@ end)
 -- unaffordable or already maxed → stall it 20s. Stops blind spam on things you can't afford / maxed.
 local NOOBS_F; pcall(function() NOOBS_F = LP.FEATURES:FindFirstChild("NOOBS") end)
 local sStall, sFired, sPrev = {}, {}, {}
+local saveMode, saveUntil, saveCd = false, 0, 0
 local fbUnlockedNoobs = {}
 local function sBlocked(k) local u=sStall[k]; return u~=nil and tick()<u end
 local function sMark(k) sFired[k]=true end
@@ -1034,6 +1035,19 @@ local function smartRefresh()
     for _, pr in ipairs({{"B3_UnlockSoccerRune","Football"},{"B3_UnlockNoobinials","Football"}}) do
         if sPrev["t:"..pr[1]]~=nil and (sPrev["t:"..pr[1]] or 0)<1 and (fbLevels[pr[1]] or 0)>=1 then runeBlock[pr[2]]=now+60 end
     end
+    -- SAVE-FOR-BIG-BUY: rank/trophy give big multipliers → priority. If one is pending but unaffordable,
+    -- PAUSE Goals-spending on talents/goal-upgrades (up to 5 min) so the balance builds up to afford it.
+    -- Income (auto-kick / noobs) keeps running so it accrues faster. Too far in 5 min → resume 2 min.
+    local rankUnaff   = (fbRank() < FB_RANK_MAX)         and (S.autoFbAll or S.autoFbRank)   and sBlocked("rank")
+    local trophyUnaff = (fbTrophies() < FB_TROPHY_COUNT) and (S.autoFbAll or S.autoFbTrophy) and sBlocked("trophy")
+    if saveMode then
+        if (not rankUnaff and not trophyUnaff) or now > saveUntil then
+            if now > saveUntil then saveCd = now + 120 end
+            saveMode = false
+        end
+    elseif now > saveCd and (rankUnaff or trophyUnaff) then
+        saveMode, saveUntil = true, now + 300
+    end
     sPrev=cur; sFired={}
 end
 safeLoop(3, function()
@@ -1047,7 +1061,7 @@ safeLoop(0.1, function()
     -- Each concern contributes at most one fire per rotation, so a stuck rank/trophy can't starve
     -- the tree (that was the "не качает таланты" bug). Total rate is still capped at FB_RATE/s.
     local actions = {}
-    if (S.autoFbAll or S.autoFbTree) then
+    if (S.autoFbAll or S.autoFbTree) and not saveMode then   -- saveMode: hold Goals for rank/trophy
         if next(FB_ML) ~= nil then
             -- SMART: fire only the buyable frontier (unlocked & not maxed), skipping excluded talents
             -- at fire-time (instant — no 4s-window +1 on excluded nodes).
@@ -1097,7 +1111,7 @@ safeLoop(0.1, function()
             end
         end
     end
-    if (S.autoFbAll or S.autoGoalUpg) then
+    if (S.autoFbAll or S.autoGoalUpg) and not saveMode then   -- saveMode: hold Goals for rank/trophy
         -- selected Goal-upgrades, or ALL of them under the master AUTO FOOTBALL toggle
         local gtargets = selectedGoalUps
         if #gtargets == 0 and S.autoFbAll then gtargets = GOAL_UP_LABELS end
@@ -1192,7 +1206,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v9.3 · @Benefit",
+    SubTitle    = "v9.4 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1648,5 +1662,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v9.3",Content="✅ Loaded | ⚽ 1-toggle full auto (noob priority) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v9.4",Content="✅ Loaded | ⚽ Full auto + save-for-rank/trophy | @Benefit",Duration=5})
 
