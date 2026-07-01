@@ -128,6 +128,7 @@ local selectedMinCap     = "Classic"
 local prismEquipPat      = 1
 local prismThreshold     = 3
 local coinInterval       = 60
+local RECHECK            = 5    -- re-check stalled (unaffordable / not-yet-unlocked) items every 5s
 local selectedMilestones = {}
 local selectedPotions    = {}
 local manualRuneLuck     = nil
@@ -1009,7 +1010,8 @@ end)
 -- auto-resume after a rank reset. Tree buys only IsNodeUnlocked nodes, round-robin, within budget.
 -- ─── SMART affordability via result-detection (no big-number math) ────────────
 -- Every ~3s read live state; anything we FIRED that did NOT progress (level/count didn't rise) is
--- unaffordable or already maxed → stall it 20s. Stops blind spam on things you can't afford / maxed.
+-- unaffordable or already maxed → stall it RECHECK(5)s, then retry. Balances "no blind spam" with
+-- "react fast when income catches up" — the token-bucket (FB_RATE/s) still caps total fire volume.
 local NOOBS_F; pcall(function() NOOBS_F = LP.FEATURES:FindFirstChild("NOOBS") end)
 local sStall, sFired, sPrev = {}, {}, {}
 local saveMode, saveUntil, saveCd = false, 0, 0
@@ -1029,7 +1031,7 @@ local function smartRefresh()
     for name in pairs(FB_ML) do cur["t:"..name]=fbLevels[name] or 0 end
     for _,nm in ipairs(un) do cur["nu:"..nm]=noobLvl(nm) end
     for k in pairs(sFired) do
-        if sPrev[k]~=nil and (cur[k] or 0)<=(sPrev[k] or 0) then sStall[k]=now+20 else sStall[k]=nil end
+        if sPrev[k]~=nil and (cur[k] or 0)<=(sPrev[k] or 0) then sStall[k]=now+RECHECK else sStall[k]=nil end
     end
     -- Rune unlock → block rolling that rune for 60s (a talent opens it; rolling immediately is wasteful)
     for _, pr in ipairs({{"B3_UnlockSoccerRune","Football"},{"B3_UnlockNoobinials","Football"}}) do
@@ -1232,7 +1234,7 @@ safeLoop(1, function()
         end
     end)
     capsuleBusy = false                             -- always released
-    if noobLocked(nm) then sStall["nb:"..nm] = tick() + 30 end   -- didn't buy → not available now → skip 30s
+    if noobLocked(nm) then sStall["nb:"..nm] = tick() + RECHECK end   -- didn't buy → re-check in 5s
 end)
 
 -- ─── Stability watchdog ───────────────────────────────────────────────────────
@@ -1253,7 +1255,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v9.7 · @Benefit",
+    SubTitle    = "v9.8 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1707,5 +1709,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v9.7",Content="✅ Loaded | ⚽ FULL AUTO (walk to noobs + watchdog) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v9.8",Content="✅ Loaded | ⚽ FULL AUTO (5s re-check + walk to noobs) | @Benefit",Duration=5})
 
