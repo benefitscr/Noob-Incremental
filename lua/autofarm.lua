@@ -103,6 +103,7 @@ local S = {
     mining=false, exchangeOre=false, miningMode="teleport",
     runes=false, tier=false, awaken=false, upgradeQuest=false,
     prismEquip=false, autoCoinFarm=false, autoPrism=false, autoPot=false, autoGuildClaim=false,
+    autoFbAll=false, autoFbTree=false, autoFbRank=false, autoFbTrophy=false, autoBuyNoob=false,
     StarterTree=false, TycoonTree=false, FarmTree=false,
     PrismTree=false, IceTree=false, MiningTree=false,
     Ice=false, Fire=false, Blaze=false, Water=false, Oof=false,
@@ -139,6 +140,7 @@ local BOOL_KEYS = {
     "Ice","Fire","Blaze","Water","Oof","Rebirth","Wood","Planks",
     "Bread","Cash","Coin","HackPoints","Gem",
     "autoPot","autoGuildClaim","autoCoinFarm","autoPrism",
+    "autoFbAll","autoFbTree","autoFbRank","autoFbTrophy","autoBuyNoob",
 }
 local function saveSettings()
     local lines = {
@@ -286,9 +288,32 @@ do
         end
     end
 end
-local CAPSULE_PRICE={Classic=1e9, Super=1e10}
+local CAPSULE_PRICE={Classic=1e9, Super=7.5e9, Football=2.5e41}
+local CAPSULE_CURRENCY={Classic="Prism", Super="Prism", Football="Goals"}
 local prismAmountV=nil
 pcall(function() prismAmountV=LP.CURRENCIES.Prism.Amount:FindFirstChild("1") end)
+-- Currency amount reader (best-effort; nil = unreadable, e.g. huge Goals → callers attempt anyway, server validates)
+local function currencyAmount(name)
+    local ok, v = pcall(function()
+        local c = LP.CURRENCIES:FindFirstChild(name)
+        local a = c and c:FindFirstChild("Amount")
+        local one = a and a:FindFirstChild("1")
+        return one and tonumber(one.Value) or nil
+    end)
+    return ok and v or nil
+end
+-- ─── Football auto-progress data ──────────────────────────────────────────────
+local FB_NODES={}
+pcall(function()
+    local t=require(RS.Shared.Modules.UIFootballTree)
+    if t and t.Nodes then for name in pairs(t.Nodes) do FB_NODES[#FB_NODES+1]=name end end
+end)
+local FB_TROPHY_COUNT, FB_RANK_MAX = 10, 6
+pcall(function() FB_TROPHY_COUNT = #require(RS.Shared.Modules.Trophy).List end)
+pcall(function() FB_RANK_MAX = #require(RS.Shared.Modules.FootballRankings).List end)
+local FB_RANK_V
+pcall(function() FB_RANK_V = LP.FEATURES.FOOTBALL_RANKING:FindFirstChild("RankingBought") end)
+local function fbRank() return FB_RANK_V and (tonumber(FB_RANK_V.Value) or 0) or 0 end
 
 -- Hide capsule opening UI overlay
 LP.PlayerGui.ChildAdded:Connect(function(child)
@@ -688,7 +713,10 @@ end)
 safeLoop(4, function()
     if not S.minionCap then return end
     local price=CAPSULE_PRICE[selectedMinCap] or 1e9
-    if (prismAmountV and tonumber(prismAmountV.Value) or 0)<price then return end
+    local cur=CAPSULE_CURRENCY[selectedMinCap] or "Prism"
+    local have=currencyAmount(cur)
+    -- Goals is a big-number currency (single Amount segment misreads) → skip client check, server validates
+    if cur~="Goals" and have and have<price then return end
     withCapsuleZone(selectedMinCap, function() fire("OpenCapsule",selectedMinCap) end)
 end)
 
@@ -825,12 +853,70 @@ task.spawn(function()
     end
 end)
 
+-- Football auto-progress — Talents (tree) → Rank → Trophies
+-- Trophies RESET when you rank up, so they're re-sprayed 1..N every cycle.
+-- Rank is capped at FB_RANK_MAX; trophies run LAST so they end each cycle bought.
+safeLoop(0.8, function()
+    if not (S.autoFbAll or S.autoFbTree or S.autoFbRank or S.autoFbTrophy) then return end
+    -- 1. Talents = football skill-tree nodes (server validates state/affordability)
+    if (S.autoFbAll or S.autoFbTree) and #FB_NODES>0 then
+        for _, n in ipairs(FB_NODES) do fire("BuyFootballUITreeNode", n); task.wait(0.03) end
+    end
+    -- 2. Rank up — max FB_RANK_MAX (ranking resets trophies → do it before trophies)
+    if (S.autoFbAll or S.autoFbRank) and fbRank() < FB_RANK_MAX then
+        fire("BuyFootballRanking", fbRank()+1)
+    end
+    -- 3. Trophies — spray 1..N to re-buy the ones a rank-up reset
+    if S.autoFbAll or S.autoFbTrophy then
+        for i=1, FB_TROPHY_COUNT do fire("BuyTrophy", i); task.wait(0.02) end
+    end
+end)
+
+-- Auto-buy noobs — standing on _Zone_Buy_Noob BUYS a new (locked) noob if affordable
+-- (upgrading is a SEPARATE button). Server-side & position-based (no remote) → we teleport
+-- onto the next locked noob's zone and the server buys it if the player can afford it.
+local NOOBS_FOLDER = GC:FindFirstChild("Noobs")
+local NOOBS_FEAT
+pcall(function() NOOBS_FEAT = LP.FEATURES:FindFirstChild("NOOBS") end)
+local function noobLocked(name)
+    if not NOOBS_FEAT then return true end          -- unknown → treat as buyable
+    local n = NOOBS_FEAT:FindFirstChild(name)
+    local u = n and n:FindFirstChild("Unlocked")
+    return not (u and u.Value)
+end
+local function firstLockedNoobZone()
+    if not NOOBS_FOLDER then return nil end
+    for _, m in ipairs(NOOBS_FOLDER:GetChildren()) do
+        local z = m:FindFirstChild("_Zone_Buy_Noob")
+        if z and noobLocked(m.Name) then return z, m.Name end
+    end
+    return nil
+end
+safeLoop(1, function()
+    if not S.autoBuyNoob or capsuleBusy then return end
+    local z = firstLockedNoobZone(); if not z then return end
+    local hrp = getHRP(); if not hrp then return end
+    capsuleBusy = true                              -- block mining/ice from moving us mid-buy
+    local origin = hrp.CFrame
+    pcall(function()
+        local h = getHRP(); if not h then return end
+        h.CFrame = CFrame.new(z.Position + Vector3.new(0, 3, 0))
+        task.wait(0.4)
+        if typeof(firetouchinterest) == "function" then
+            pcall(firetouchinterest, h, z, 0); task.wait(0.05); pcall(firetouchinterest, h, z, 1)
+        end
+        task.wait(0.2)
+    end)
+    local h = getHRP(); if h then h.CFrame = origin end
+    capsuleBusy = false                             -- always released
+end)
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- GUI — FLUENT
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.0 · @Benefit",
+    SubTitle    = "v8.1 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -844,6 +930,7 @@ local Tabs={
     Runes   = Window:AddTab({ Title="🎲 Runes",   Icon="shuffle"     }),
     Upgrade = Window:AddTab({ Title="⬆️ Upgrade", Icon="trending-up" }),
     Gear    = Window:AddTab({ Title="🎒 Gear",    Icon="shield"      }),
+    Football= Window:AddTab({ Title="⚽ Football", Icon="trophy"      }),
 }
 
 -- Visual divider — horizontal line between sections
@@ -940,7 +1027,7 @@ T:AddToggle("iceFarm",{Title="❄️  Ice Farm ON",Default=S.iceFarm}):OnChanged
 
 div(T)
 hdr(T,"🎱  Capsule — Auto Open")
-T:AddDropdown("capZone",{Title="Zone",Values={"Classic","Super"},Multi=false,Default=selectedMinCap}):OnChanged(function(v) selectedMinCap=v; saveSettings() end)
+T:AddDropdown("capZone",{Title="Zone",Values={"Classic","Super","Football"},Multi=false,Default=selectedMinCap}):OnChanged(function(v) selectedMinCap=v; saveSettings() end)
 T:AddToggle("autoCap",{Title="🎱  Auto Capsule ON",Default=S.minionCap}):OnChanged(function(v) S.minionCap=v; saveSettings() end)
 
 div(T)
@@ -949,8 +1036,11 @@ local capLabelPara=T:AddParagraph({Title="Session",Content="Opened: 0"})
 T:AddButton({Title="Open All  (until Prism runs out)",Callback=function()
     task.spawn(function()
         local price=CAPSULE_PRICE[selectedMinCap] or 1e9
+        local ccur=CAPSULE_CURRENCY[selectedMinCap] or "Prism"
         local n=bulkCapsules(selectedMinCap,function()
-            return (prismAmountV and tonumber(prismAmountV.Value) or 0)>=price
+            if ccur=="Goals" then return true end       -- big-number → let holdAndFire/server stop it
+            local have=currencyAmount(ccur)
+            return (have==nil) or have>=price
         end)
         notify("🎱","Opened "..n,4)
     end)
@@ -1001,7 +1091,7 @@ end -- Mine
 do local T=Tabs.Runes
 
 hdr(T,"🎲  Zone Roll")
-T:AddDropdown("runeZones",{Title="Active Zones",Values={"Basic","Super","Advanced","Cosmic Prism","Hacker","Snowy","Deepcore"},Multi=true,Default=toDict(selectedRunes)}):OnChanged(function(v)
+T:AddDropdown("runeZones",{Title="Active Zones",Values={"Basic","Super","Advanced","Cosmic Prism","Hacker","Snowy","Deepcore","Football"},Multi=true,Default=toDict(selectedRunes)}):OnChanged(function(v)
     selectedRunes={}; for k,_ in pairs(v) do selectedRunes[#selectedRunes+1]=k end; saveSettings()
 end)
 T:AddSlider("runeInt",{Title="Interval (s)  [min 0.155]",Default=math.max(runeInterval,0.155),Min=0.15,Max=2.0,Rounding=2}):OnChanged(function(v) runeInterval=v; saveSettings() end)
@@ -1227,6 +1317,28 @@ end})
 
 end -- Gear
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TAB 7 — ⚽ Football (auto-progress)
+-- ═══════════════════════════════════════════════════════════════════════════════
+do local T=Tabs.Football
+
+hdr(T,"🤖  Auto Football")
+T:AddParagraph({Title="",Content="Качает футбол по кругу: таланты (дерево) → ранг → трофеи. Трофеи сбрасываются рангом и перезакупаются автоматически. Включил — и можно спать."})
+T:AddToggle("fbAll",{Title="🤖  AUTO FOOTBALL (всё сразу)",Default=S.autoFbAll}):OnChanged(function(v) S.autoFbAll=v; saveSettings() end)
+
+div(T)
+hdr(T,"🎯  По отдельности")
+T:AddToggle("fbTree",  {Title="🌳 Таланты — дерево ("..#FB_NODES.." нод)",         Default=S.autoFbTree  }):OnChanged(function(v) S.autoFbTree=v;   saveSettings() end)
+T:AddToggle("fbRank",  {Title="🏅 Ранг — до "..FB_RANK_MAX.." (сбрасывает трофеи)", Default=S.autoFbRank  }):OnChanged(function(v) S.autoFbRank=v;   saveSettings() end)
+T:AddToggle("fbTrophy",{Title="🏆 Трофеи — все 1.."..FB_TROPHY_COUNT,               Default=S.autoFbTrophy}):OnChanged(function(v) S.autoFbTrophy=v; saveSettings() end)
+T:AddToggle("fbBuyNoob",{Title="🧍 Авто-покупка нубов (следующий залоченный)",       Default=S.autoBuyNoob }):OnChanged(function(v) S.autoBuyNoob=v; saveSettings() end)
+
+div(T)
+hdr(T,"⚽  Football Rune & Capsule")
+T:AddParagraph({Title="",Content="Руна «Football» — во вкладке 🎲 Runes → Active Zones. Капсула «Football» (за Goals) — во вкладке ❄️ W2/Cap → Zone. Включи там нужные тумблеры (Auto Roll / Auto Capsule)."})
+
+end -- Football
+
 -- ─── Periodic capsule count sync ─────────────────────────────────────────────
 safeLoop(5, function()
     pcall(function()
@@ -1237,5 +1349,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.0",Content="✅ Loaded | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v8.1",Content="✅ Loaded | ⚽ Football auto | @Benefit",Duration=5})
 
