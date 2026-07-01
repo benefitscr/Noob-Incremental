@@ -121,6 +121,7 @@ local selectedOres       = {}
 local selectedNoobs      = {}
 local selectedFbUpNoobs  = {}
 local selectedGoalUps    = {}
+local excludedTalents    = {}
 local selectedChest      = "Chest"
 local selectedMinCap     = "Classic"
 local prismEquipPat      = 1
@@ -163,6 +164,7 @@ local function saveSettings()
     if #selectedNoobs>0      then lines[#lines+1]="selectedNoobs="..table.concat(selectedNoobs,",") end
     if #selectedFbUpNoobs>0  then lines[#lines+1]="selectedFbUpNoobs="..table.concat(selectedFbUpNoobs,",") end
     if #selectedGoalUps>0    then lines[#lines+1]="selectedGoalUps="..table.concat(selectedGoalUps,"|") end
+    do local ex={}; for n in pairs(excludedTalents) do ex[#ex+1]=n end; if #ex>0 then lines[#lines+1]="excludedTalents="..table.concat(ex,",") end end
     if #selectedMilestones>0 then lines[#lines+1]="selectedMilestones="..table.concat(selectedMilestones,",") end
     if #selectedPotions>0    then lines[#lines+1]="selectedPotions="..table.concat(selectedPotions,",") end
     local ores={}
@@ -198,6 +200,8 @@ local function loadSettings()
                 selectedFbUpNoobs={}; for r in v:gmatch("[^,]+") do selectedFbUpNoobs[#selectedFbUpNoobs+1]=r end
             elseif k=="selectedGoalUps" and v~="" then
                 selectedGoalUps={}; for r in v:gmatch("[^|]+") do selectedGoalUps[#selectedGoalUps+1]=r end
+            elseif k=="excludedTalents" and v~="" then
+                excludedTalents={}; for r in v:gmatch("[^,]+") do excludedTalents[r]=true end
             elseif k=="selectedMilestones" and v~="" then
                 selectedMilestones={}; for r in v:gmatch("[^,]+") do selectedMilestones[#selectedMilestones+1]=r end
             elseif k=="selectedPotions" and v~="" then
@@ -387,6 +391,22 @@ if #GOAL_UPS==0 then
 end
 for _,u in ipairs(GOAL_UPS) do GOAL_UP_LABELS[#GOAL_UP_LABELS+1]=u.label end
 
+-- Talent labels for the "don't upgrade" exclude list: "title · name" → node name
+local FB_TALENT_LABELS, FB_LABEL_TO_NODE = {}, {}
+do
+    local titles = {}
+    if FB_MODULE and type(FB_MODULE.Nodes)=="table" then
+        for name, node in pairs(FB_MODULE.Nodes) do if type(node)=="table" then titles[name]=node.title end end
+    end
+    for _, name in ipairs(FB_NODES) do
+        local t = titles[name]
+        local label = (t and t~="") and (tostring(t).." · "..name) or name
+        FB_TALENT_LABELS[#FB_TALENT_LABELS+1] = label
+        FB_LABEL_TO_NODE[label] = name
+    end
+    table.sort(FB_TALENT_LABELS)
+end
+
 -- Football tree FRONTIER — fire only buyable nodes (unlocked & not maxed) instead of all 65.
 -- Verified live: firing BuyFootballUITreeNode buys a level; the frontier is ~a handful of nodes.
 -- Graph (maxLevel + unlocks) from the live module; node levels from GetPlayerData (refreshed).
@@ -414,7 +434,7 @@ local function computeFbFrontier()
     if next(FB_ML)==nil then buildFbGraph() end          -- module Nodes may have been lazy at load
     local out = {}
     for name, ml in pairs(FB_ML) do
-        if (fbLevels[name] or 0) < ml then
+        if not excludedTalents[name] and (fbLevels[name] or 0) < ml then
             local unlocked = (FB_PARENT[name] == nil)     -- root has no parent
             if not unlocked then
                 for _, p in ipairs(FB_PARENT[name]) do if (fbLevels[p] or 0) >= 1 then unlocked=true; break end end
@@ -981,18 +1001,25 @@ safeLoop(0.1, function()
     local actions = {}
     if (S.autoFbAll or S.autoFbTree) then
         if next(FB_ML) ~= nil then
-            -- SMART: fire only the buyable frontier (unlocked & not maxed). Empty = nothing to buy.
+            -- SMART: fire only the buyable frontier (unlocked & not maxed), skipping excluded talents
+            -- at fire-time (instant — no 4s-window +1 on excluded nodes).
             if #fbFrontier > 0 then
                 actions[#actions+1] = function()
-                    fbCursor = (fbCursor % #fbFrontier) + 1
-                    fire("BuyFootballUITreeNode", fbFrontier[fbCursor])
+                    for _=1,#fbFrontier do
+                        fbCursor = (fbCursor % #fbFrontier) + 1
+                        local name = fbFrontier[fbCursor]
+                        if not excludedTalents[name] then fire("BuyFootballUITreeNode", name); return end
+                    end
                 end
             end
         elseif #FB_NODES > 0 then
-            -- Fallback (graph not ready yet): round-robin all nodes.
+            -- Fallback (graph not ready yet): round-robin all nodes, skipping excluded talents.
             actions[#actions+1] = function()
-                local name = FB_NODES[fbCursor]; fbCursor = (fbCursor % #FB_NODES) + 1
-                fire("BuyFootballUITreeNode", name)
+                for _=1,#FB_NODES do
+                    fbCursor = (fbCursor % #FB_NODES) + 1
+                    local name = FB_NODES[fbCursor]
+                    if not excludedTalents[name] then fire("BuyFootballUITreeNode", name); return end
+                end
             end
         end
     end
@@ -1088,7 +1115,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.9 · @Benefit",
+    SubTitle    = "v9.0 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1501,6 +1528,9 @@ T:AddToggle("fbAll",{Title="🤖  AUTO FOOTBALL (всё сразу)",Default=S.a
 div(T)
 hdr(T,"🎯  По отдельности")
 T:AddToggle("fbTree",  {Title="🌳 Таланты — дерево ("..#FB_NODES.." нод)",         Default=S.autoFbTree  }):OnChanged(function(v) S.autoFbTree=v;   saveSettings() end)
+T:AddDropdown("excludeTalents",{Title="⛔ НЕ качать эти таланты",Values=FB_TALENT_LABELS,Multi=true,Default=(function() local d={} for _,lbl in ipairs(FB_TALENT_LABELS) do if excludedTalents[FB_LABEL_TO_NODE[lbl]] then d[lbl]=true end end return d end)()}):OnChanged(function(v)
+    excludedTalents={}; for lbl in pairs(v) do local n=FB_LABEL_TO_NODE[lbl]; if n then excludedTalents[n]=true end end; saveSettings()
+end)
 T:AddToggle("fbRank",  {Title="🏅 Ранг — до "..FB_RANK_MAX.." (сбрасывает трофеи)", Default=S.autoFbRank  }):OnChanged(function(v) S.autoFbRank=v;   saveSettings() end)
 T:AddToggle("fbTrophy",{Title="🏆 Трофеи — все 1.."..FB_TROPHY_COUNT,               Default=S.autoFbTrophy}):OnChanged(function(v) S.autoFbTrophy=v; saveSettings() end)
 T:AddToggle("fbBuyNoob",{Title="🧍 Авто-покупка нубов (следующий залоченный)",       Default=S.autoBuyNoob }):OnChanged(function(v) S.autoBuyNoob=v; saveSettings() end)
@@ -1541,5 +1571,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.9",Content="✅ Loaded | ⚽ Football + faster rune interval | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v9.0",Content="✅ Loaded | ⚽ Football + talent exclude list | @Benefit",Duration=5})
 
