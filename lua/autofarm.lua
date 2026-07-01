@@ -1138,7 +1138,12 @@ end)
 -- Verified live: the ball visibly kicks and Goals are credited. Requires being in the football zone.
 local BALL_CTRL
 local function getBallCtrl()
-    if BALL_CTRL then return BALL_CTRL end
+    -- re-fetch if missing or the cached controller went stale (e.g. after respawn) — stability
+    if BALL_CTRL then
+        local ok, st = pcall(function() return BALL_CTRL._state end)
+        if ok and st ~= nil then return BALL_CTRL end
+        BALL_CTRL = nil
+    end
     pcall(function() BALL_CTRL = require(RS.Framework.Client).GetController("Ctrl_BallShootPrototype") end)
     return BALL_CTRL
 end
@@ -1195,29 +1200,60 @@ safeLoop(1, function()
         end
     end
     if not z then return end
-    local hrp = getHRP(); if not hrp then return end
+    local hrp, hum = getHRP(), getHum()
+    if not (hrp and hum) then return end
     capsuleBusy = true                              -- block mining/ice from moving us mid-buy
-    local origin = hrp.CFrame
+    local origin = hrp.Position
     pcall(function()
-        local h = getHRP(); if not h then return end
-        h.CFrame = CFrame.new(z.Position + Vector3.new(0, 3, 0))
-        task.wait(0.4)
-        if typeof(firetouchinterest) == "function" then
-            pcall(firetouchinterest, h, z, 0); task.wait(0.05); pcall(firetouchinterest, h, z, 1)
+        -- WALK to the button (natural movement; avoids the mid-map teleporter). CFrame-TP is used ONLY
+        -- as recovery if we're far away (accidentally left the event).
+        if (z.Position - hrp.Position).Magnitude > 500 then
+            hrp.CFrame = CFrame.new(z.Position + Vector3.new(0, 3, 0))   -- recovery teleport back
+        else
+            hum:MoveTo(z.Position)
+            local t = tick()
+            while tick() - t < 8 do
+                local h = getHRP(); if not h then break end
+                if (h.Position - z.Position).Magnitude < 7 then break end
+                task.wait(0.15)
+            end
         end
-        task.wait(0.3)
+        task.wait(0.5)                              -- stand on the button so the server buys the noob
+        -- walk back to where we were standing
+        local h2, hm2 = getHRP(), getHum()
+        if h2 and hm2 then
+            hm2:MoveTo(origin)
+            local t2 = tick()
+            while tick() - t2 < 8 do
+                local h3 = getHRP(); if not h3 then break end
+                if (h3.Position - origin).Magnitude < 7 then break end
+                task.wait(0.15)
+            end
+        end
     end)
-    local h = getHRP(); if h then h.CFrame = origin end
     capsuleBusy = false                             -- always released
     if noobLocked(nm) then sStall["nb:"..nm] = tick() + 30 end   -- didn't buy → not available now → skip 30s
 end)
+
+-- ─── Stability watchdog ───────────────────────────────────────────────────────
+-- If a movement action leaves capsuleBusy stuck true (error/death mid-move) it would block
+-- mining/ice/capsule/noob-buy forever. Clear it if it's been held continuously for >12s.
+do
+    local busySince = 0
+    safeLoop(2, function()
+        if capsuleBusy then
+            if busySince == 0 then busySince = tick()
+            elseif tick() - busySince > 12 then capsuleBusy = false; busySince = 0 end
+        else busySince = 0 end
+    end)
+end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- GUI — FLUENT
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v9.6 · @Benefit",
+    SubTitle    = "v9.7 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1671,5 +1707,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v9.6",Content="✅ Loaded | ⚽ FULL AUTO (fixed: noob gate + no stall) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v9.7",Content="✅ Loaded | ⚽ FULL AUTO (walk to noobs + watchdog) | @Benefit",Duration=5})
 
