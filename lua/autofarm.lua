@@ -427,6 +427,7 @@ local function buildFbGraph()
 end
 buildFbGraph()
 local fbLevels = {}
+local goalLevels = {}   -- live data.UPGRADES.Goals levels {MoreGoals=n, RuneLuck=n, AutoKick=n, RuneBulk=n}
 local function refreshFbLevels()
     local ok, data = pcall(function() return RS.__Net.GetPlayerData:InvokeServer() end)
     if ok and data and type(data.FOOTBALL_UI_UPGRADE_TREE)=="table" then fbLevels = data.FOOTBALL_UI_UPGRADE_TREE end
@@ -1014,7 +1015,6 @@ end)
 -- "react fast when income catches up" — the token-bucket (FB_RATE/s) still caps total fire volume.
 local NOOBS_F; pcall(function() NOOBS_F = LP.FEATURES:FindFirstChild("NOOBS") end)
 local sStall, sFired, sPrev = {}, {}, {}
-local saveMode, saveUntil, saveCd = false, 0, 0
 local fbUnlockedNoobs = {}
 local function sBlocked(k) local u=sStall[k]; return u~=nil and tick()<u end
 local function sMark(k) sFired[k]=true end
@@ -1022,6 +1022,7 @@ local function noobLvl(name) local n=NOOBS_F and NOOBS_F:FindFirstChild(name); l
 local function smartRefresh()
     local ok,data=pcall(function() return RS.__Net.GetPlayerData:InvokeServer() end)
     if ok and data and type(data.FOOTBALL_UI_UPGRADE_TREE)=="table" then fbLevels=data.FOOTBALL_UI_UPGRADE_TREE end
+    if ok and data and type(data.UPGRADES)=="table" and type(data.UPGRADES.Goals)=="table" then goalLevels=data.UPGRADES.Goals end
     computeFbFrontier()
     local un={}
     if NOOBS_F then for _,n in ipairs(NOOBS_F:GetChildren()) do local u=n:FindFirstChild("Unlocked"); if u and u.Value then un[#un+1]=n.Name end end end
@@ -1030,29 +1031,13 @@ local function smartRefresh()
     local cur={ rank=fbRank(), trophy=fbTrophies() }
     for name in pairs(FB_ML) do cur["t:"..name]=fbLevels[name] or 0 end
     for _,nm in ipairs(un) do cur["nu:"..nm]=noobLvl(nm) end
+    for _,u in ipairs(GOAL_UPS) do cur["gu:"..tostring(u.k)]=tonumber(goalLevels[u.k]) or 0 end
     for k in pairs(sFired) do
         if sPrev[k]~=nil and (cur[k] or 0)<=(sPrev[k] or 0) then sStall[k]=now+RECHECK else sStall[k]=nil end
     end
     -- Rune unlock → block rolling that rune for 60s (a talent opens it; rolling immediately is wasteful)
     for _, pr in ipairs({{"B3_UnlockSoccerRune","Football"},{"B3_UnlockNoobinials","Football"}}) do
         if sPrev["t:"..pr[1]]~=nil and (sPrev["t:"..pr[1]] or 0)<1 and (fbLevels[pr[1]] or 0)>=1 then runeBlock[pr[2]]=now+60 end
-    end
-    -- SAVE-FOR-BIG-BUY: rank/trophy give big multipliers → ALWAYS priority. If one is pending but
-    -- unaffordable, PAUSE all Goals-spending (talents/goal-ups/noob-buy&upgrade) up to 8 min so the
-    -- balance banks toward it; auto-kick income keeps flowing. Timeout → resume 2 min, then re-save.
-    -- EXCEPTION: the first 3 trophies are cheap → NEVER trigger a save (bought in the normal flow).
-    local rankUnaff   = (fbRank() < FB_RANK_MAX)         and (S.autoFbAll or S.autoFbRank)   and sBlocked("rank")
-    local trophyUnaff = (fbTrophies() < FB_TROPHY_COUNT) and (S.autoFbAll or S.autoFbTrophy) and sBlocked("trophy")
-                        and fbTrophies() >= 3   -- next trophy is #4+; #1-3 are exempt from saving
-    if saveMode then
-        if (not rankUnaff and not trophyUnaff) or now > saveUntil then
-            if now > saveUntil then saveCd = now + 120 end
-            saveMode = false
-            print("[Autofarm] 💰 Save done -> resume spending")
-        end
-    elseif now > saveCd and (rankUnaff or trophyUnaff) then
-        saveMode, saveUntil = true, now + 480          -- stand & save up to 8 min for the pending buy
-        print("[Autofarm] 💰 Saving for " .. (rankUnaff and "RANK" or "TROPHY") .. " -> pausing spend, standing to bank Goals")
     end
     sPrev=cur; sFired={}
 end
@@ -1076,11 +1061,11 @@ safeLoop(0.1, function()
     if (S.autoFbAll or S.autoFbTrophy) and fbTrophies() < FB_TROPHY_COUNT and not sBlocked("trophy") then
         priority[#priority+1] = function() sMark("trophy"); fire("BuyTrophy", fbTrophies()+1) end
     end
-    -- Goals-SPENDING concerns (tree / noob-upgrade / goal-upgrade). While saveMode is on we build NONE of
-    -- them → the character stands, auto-kick income accrues, and the balance banks toward the pending
-    -- rank/trophy. (saveMode is armed by smartRefresh only for rank or trophy #4+.)
+    -- Goals-SPENDING concerns (tree / noob-upgrade / goal-upgrade) — ALWAYS active. The bot never stands
+    -- idle "saving": income (game auto-kick) flows continuously, it buys whatever is available, and
+    -- rank/trophy fire FIRST (priority) so they are grabbed the instant they are affordable. No freeze.
     local actions = {}
-    if not saveMode then
+    do
         if (S.autoFbAll or S.autoFbTree) then
             if next(FB_ML) ~= nil then
                 -- SMART: fire only the buyable frontier (unlocked & not maxed), skipping excluded talents
@@ -1126,13 +1111,19 @@ safeLoop(0.1, function()
             end
         end
         if (S.autoFbAll or S.autoGoalUpg) then
-            -- ALL goal-upgrades by default, no selection needed
+            -- ALL goal-upgrades by default. Skip STALLED ones (maxed / not enough Goals) so we don't
+            -- spam UpgradeUpgradeMax on what we can't afford — that was the "недостаточно голов" toast
+            -- spam. Result-detected in smartRefresh via cur["gu:"..k]; stalled 5s on no progress.
             local gtargets = GOAL_UP_LABELS
             if #gtargets > 0 then
                 actions[#actions+1] = function()
-                    goalUpCursor = (goalUpCursor % #gtargets) + 1
-                    local gk = GOAL_LABEL_TO_K[gtargets[goalUpCursor]]
-                    if gk ~= nil then fire("UpgradeUpgradeMax", "Goals", gk) end
+                    for _=1,#gtargets do
+                        goalUpCursor = (goalUpCursor % #gtargets) + 1
+                        local gk = GOAL_LABEL_TO_K[gtargets[goalUpCursor]]
+                        if gk ~= nil and not sBlocked("gu:"..tostring(gk)) then
+                            sMark("gu:"..tostring(gk)); fire("UpgradeUpgradeMax", "Goals", gk); return
+                        end
+                    end
                 end
             end
         end
@@ -1206,7 +1197,7 @@ local function firstLockedNoobZone()
     return nil
 end
 safeLoop(1, function()
-    if not (S.autoBuyNoob or S.autoFbAll) or capsuleBusy or saveMode then return end   -- don't walk off while banking
+    if not (S.autoBuyNoob or S.autoFbAll) or capsuleBusy then return end
     -- next LOCKED noob that isn't stalled (a noob that didn't unlock after a try is skipped 30s, so we
     -- don't keep teleporting to noobs that aren't available/affordable yet)
     local z, nm
@@ -1270,7 +1261,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v9.9 · @Benefit",
+    SubTitle    = "v10.0 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1724,5 +1715,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v9.9",Content="✅ Loaded | ⚽ FULL AUTO (rank/trophy priority + save-mode) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v10.0",Content="✅ Loaded | ⚽ FULL AUTO (always-progress, no freeze) | @Benefit",Duration=5})
 
