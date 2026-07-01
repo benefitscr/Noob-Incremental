@@ -929,44 +929,45 @@ end)
 -- Fast 0.1s tick, but the token-bucket (FB_RATE/s) caps real fire volume → no rate-limit kicks.
 -- Rank & trophy buy only the NEXT one (not a 1..N spray); TrophyBought is read live so trophies
 -- auto-resume after a rank reset. Tree buys only IsNodeUnlocked nodes, round-robin, within budget.
+local fbUpCursor, goalUpCursor, fbTurn = 0, 0, 0
 safeLoop(0.1, function()
     if not (S.autoFbAll or S.autoFbTree or S.autoFbRank or S.autoFbTrophy or S.autoFbUpNoob or S.autoGoalUpg) then return end
-    -- 1. Rank — buy the next rank while under max (short-circuits before spending a token if done)
-    if (S.autoFbAll or S.autoFbRank) and fbRank() < FB_RANK_MAX and fbAllow() then
-        fire("BuyFootballRanking", fbRank()+1)
-    end
-    -- 2. Trophies — buy only the NEXT one; live TrophyBought means resets auto-resume
-    if (S.autoFbAll or S.autoFbTrophy) and fbTrophies() < FB_TROPHY_COUNT and fbAllow() then
-        fire("BuyTrophy", fbTrophies()+1)
-    end
-    -- 3. Talents — round-robin the whole tree, rate-limited (server buys the valid/affordable ones).
-    -- Buy-all is safe: the token-bucket caps volume so it can't rate-limit, and the server rejects
-    -- invalid buys. (Per-node IsNodeUnlocked filter is deferred until it can be verified live.)
+    -- FAIR round-robin across all active football concerns through ONE shared token-bucket.
+    -- Each concern contributes at most one fire per rotation, so a stuck rank/trophy can't starve
+    -- the tree (that was the "не качает таланты" bug). Total rate is still capped at FB_RATE/s.
+    local actions = {}
     if (S.autoFbAll or S.autoFbTree) and #FB_NODES > 0 then
-        local scans = 0
-        while scans < 12 and fbAllow() do
-            local name = FB_NODES[fbCursor]
-            fbCursor = (fbCursor % #FB_NODES) + 1
-            scans = scans + 1
+        actions[#actions+1] = function()
+            local name = FB_NODES[fbCursor]; fbCursor = (fbCursor % #FB_NODES) + 1
             fire("BuyFootballUITreeNode", name)
         end
     end
-    -- 4. Football noob UPGRADES — UpgradeNoobMax for selected (like regular autoNoob), rate-limited
-    if (S.autoFbAll or S.autoFbUpNoob) and #selectedFbUpNoobs>0 then
-        for _, nm in ipairs(selectedFbUpNoobs) do
-            if not fbAllow() then break end
-            fire("UpgradeNoobMax", nm)
+    if (S.autoFbAll or S.autoFbRank) and fbRank() < FB_RANK_MAX then
+        actions[#actions+1] = function() fire("BuyFootballRanking", fbRank()+1) end
+    end
+    if (S.autoFbAll or S.autoFbTrophy) and fbTrophies() < FB_TROPHY_COUNT then
+        actions[#actions+1] = function() fire("BuyTrophy", fbTrophies()+1) end
+    end
+    if (S.autoFbAll or S.autoFbUpNoob) and #selectedFbUpNoobs > 0 then
+        actions[#actions+1] = function()
+            fbUpCursor = (fbUpCursor % #selectedFbUpNoobs) + 1
+            fire("UpgradeNoobMax", selectedFbUpNoobs[fbUpCursor])
         end
     end
-    -- 5. Goal (base) upgrades — UpgradeUpgradeMax("Goals", k) for selected only, rate-limited
-    if (S.autoFbAll or S.autoGoalUpg) and #selectedGoalUps>0 then
-        for _, label in ipairs(selectedGoalUps) do
-            local gk = GOAL_LABEL_TO_K[label]
-            if gk ~= nil then
-                if not fbAllow() then break end
-                fire("UpgradeUpgradeMax", "Goals", gk)
-            end
+    if (S.autoFbAll or S.autoGoalUpg) and #selectedGoalUps > 0 then
+        actions[#actions+1] = function()
+            goalUpCursor = (goalUpCursor % #selectedGoalUps) + 1
+            local gk = GOAL_LABEL_TO_K[selectedGoalUps[goalUpCursor]]
+            if gk ~= nil then fire("UpgradeUpgradeMax", "Goals", gk) end
         end
+    end
+    local n = #actions
+    if n == 0 then return end
+    local fired = 0
+    while fired < n * 3 and fbAllow() do
+        fbTurn = fbTurn + 1
+        actions[(fbTurn % n) + 1]()
+        fired = fired + 1
     end
 end)
 
@@ -1014,7 +1015,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.4 · @Benefit",
+    SubTitle    = "v8.5 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1462,5 +1463,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.4",Content="✅ Loaded | ⚽ Football auto + noob/goal upgrades | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v8.5",Content="✅ Loaded | ⚽ Football auto (fair scheduler) | @Benefit",Duration=5})
 
