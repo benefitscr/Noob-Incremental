@@ -9,6 +9,14 @@ local RunService = game:GetService("RunService")
 local LP         = Players.LocalPlayer
 local RS         = game:GetService("ReplicatedStorage")
 
+-- ─── Single-instance guard ──────────────────────────────────────────────────────
+-- Re-executing the loadstring stacks a SECOND full set of loops on top of the first → doubled remote
+-- fire-rate and doubled on-screen spam. Bump a shared generation token on each load; every loop below
+-- runs only while it is the newest generation and exits the instant a newer load takes over. So a
+-- reload cleanly replaces the old instance instead of piling on.
+_G.__NoobAF_gen = (_G.__NoobAF_gen or 0) + 1
+local MY_GEN = _G.__NoobAF_gen
+
 -- Wait for critical game objects to replicate (up to 30s)
 local GC, MR, NET
 do
@@ -49,7 +57,7 @@ local function notify(title, content, dur)
     pcall(Fluent.Notify, Fluent, { Title=title, Content=content, Duration=dur or 4 })
 end
 local function safeLoop(sec, fn)
-    task.spawn(function() while true do pcall(fn); task.wait(sec) end end)
+    task.spawn(function() while _G.__NoobAF_gen == MY_GEN do pcall(fn); task.wait(sec) end end)
 end
 
 -- ─── Number Utilities ─────────────────────────────────────────────────────────
@@ -876,7 +884,7 @@ end)
 
 -- Upgrade trees (5s)
 task.spawn(function()
-    while true do
+    while _G.__NoobAF_gen == MY_GEN do
         pcall(function()
             for _, tn in ipairs(TREE_NAMES) do
                 if S[tn] and treeCDs[tn] then
@@ -905,7 +913,7 @@ end)
 -- Mining loop — stay on current ore until HP = 0, then pick nearest next
 local _miningOre = nil
 task.spawn(function()
-    while true do
+    while _G.__NoobAF_gen == MY_GEN do
         task.wait(0.1)
         pcall(function()
             if not (S.mining and next(selectedOres)~=nil) or capsuleBusy then
@@ -948,7 +956,7 @@ end)
 
 -- Rune rolling — dedicated loop, no safeLoop to keep precise interval
 task.spawn(function()
-    while true do
+    while _G.__NoobAF_gen == MY_GEN do
         pcall(function()
             if S.runes and #selectedRunes>0 then
                 for _, rune in ipairs(selectedRunes) do
@@ -987,7 +995,7 @@ end)
 -- Auto Coin Farm
 local coinArmed=false
 task.spawn(function()
-    while true do
+    while _G.__NoobAF_gen == MY_GEN do
         if S.autoCoinFarm and not coinArmed then
             coinArmed=true
             pcall(function()
@@ -1270,7 +1278,7 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v10.1 · @Benefit",
+    SubTitle    = "v10.2 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1724,5 +1732,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v10.1",Content="✅ Loaded | ⚽ FULL AUTO (no freeze, no wall-spam) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v10.2",Content="✅ Loaded | ⚽ FULL AUTO (no freeze / no spam / single-instance) | @Benefit",Duration=5})
 
