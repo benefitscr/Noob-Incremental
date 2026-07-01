@@ -387,6 +387,44 @@ if #GOAL_UPS==0 then
 end
 for _,u in ipairs(GOAL_UPS) do GOAL_UP_LABELS[#GOAL_UP_LABELS+1]=u.label end
 
+-- Football tree FRONTIER — fire only buyable nodes (unlocked & not maxed) instead of all 65.
+-- Verified live: firing BuyFootballUITreeNode buys a level; the frontier is ~a handful of nodes.
+-- Graph (maxLevel + unlocks) from the live module; node levels from GetPlayerData (refreshed).
+local FB_ML, FB_UNLOCKS, FB_PARENT = {}, {}, {}
+local function buildFbGraph()
+    if not (FB_MODULE and type(FB_MODULE.Nodes)=="table") then return end
+    local ml, unl, par = {}, {}, {}
+    for name, node in pairs(FB_MODULE.Nodes) do
+        ml[name]  = node.maxLevel or 1
+        unl[name] = node.unlocks or {}
+    end
+    for p, kids in pairs(unl) do
+        if type(kids)=="table" then for _, k in ipairs(kids) do par[k]=par[k] or {}; par[k][#par[k]+1]=p end end
+    end
+    FB_ML, FB_UNLOCKS, FB_PARENT = ml, unl, par
+end
+buildFbGraph()
+local fbLevels = {}
+local function refreshFbLevels()
+    local ok, data = pcall(function() return RS.__Net.GetPlayerData:InvokeServer() end)
+    if ok and data and type(data.FOOTBALL_UI_UPGRADE_TREE)=="table" then fbLevels = data.FOOTBALL_UI_UPGRADE_TREE end
+end
+local fbFrontier = {}
+local function computeFbFrontier()
+    if next(FB_ML)==nil then buildFbGraph() end          -- module Nodes may have been lazy at load
+    local out = {}
+    for name, ml in pairs(FB_ML) do
+        if (fbLevels[name] or 0) < ml then
+            local unlocked = (FB_PARENT[name] == nil)     -- root has no parent
+            if not unlocked then
+                for _, p in ipairs(FB_PARENT[name]) do if (fbLevels[p] or 0) >= 1 then unlocked=true; break end end
+            end
+            if unlocked then out[#out+1] = name end
+        end
+    end
+    fbFrontier = out
+end
+
 -- Hide capsule opening UI overlay
 LP.PlayerGui.ChildAdded:Connect(function(child)
     if child.Name=="CapsuleOpeningDisplayFrame" then child.Enabled=false end
@@ -929,6 +967,11 @@ end)
 -- Fast 0.1s tick, but the token-bucket (FB_RATE/s) caps real fire volume → no rate-limit kicks.
 -- Rank & trophy buy only the NEXT one (not a 1..N spray); TrophyBought is read live so trophies
 -- auto-resume after a rank reset. Tree buys only IsNodeUnlocked nodes, round-robin, within budget.
+-- Refresh football node levels + frontier every 4s while tree-auto is on (one server round-trip)
+safeLoop(4, function()
+    if not (S.autoFbAll or S.autoFbTree) then return end
+    refreshFbLevels(); computeFbFrontier()
+end)
 local fbUpCursor, goalUpCursor, fbTurn = 0, 0, 0
 safeLoop(0.1, function()
     if not (S.autoFbAll or S.autoFbTree or S.autoFbRank or S.autoFbTrophy or S.autoFbUpNoob or S.autoGoalUpg) then return end
@@ -936,10 +979,21 @@ safeLoop(0.1, function()
     -- Each concern contributes at most one fire per rotation, so a stuck rank/trophy can't starve
     -- the tree (that was the "не качает таланты" bug). Total rate is still capped at FB_RATE/s.
     local actions = {}
-    if (S.autoFbAll or S.autoFbTree) and #FB_NODES > 0 then
-        actions[#actions+1] = function()
-            local name = FB_NODES[fbCursor]; fbCursor = (fbCursor % #FB_NODES) + 1
-            fire("BuyFootballUITreeNode", name)
+    if (S.autoFbAll or S.autoFbTree) then
+        if next(FB_ML) ~= nil then
+            -- SMART: fire only the buyable frontier (unlocked & not maxed). Empty = nothing to buy.
+            if #fbFrontier > 0 then
+                actions[#actions+1] = function()
+                    fbCursor = (fbCursor % #fbFrontier) + 1
+                    fire("BuyFootballUITreeNode", fbFrontier[fbCursor])
+                end
+            end
+        elseif #FB_NODES > 0 then
+            -- Fallback (graph not ready yet): round-robin all nodes.
+            actions[#actions+1] = function()
+                local name = FB_NODES[fbCursor]; fbCursor = (fbCursor % #FB_NODES) + 1
+                fire("BuyFootballUITreeNode", name)
+            end
         end
     end
     if (S.autoFbAll or S.autoFbRank) and fbRank() < FB_RANK_MAX then
@@ -1015,7 +1069,7 @@ end)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local Window=Fluent:CreateWindow({
     Title       = "Noob Incremental",
-    SubTitle    = "v8.5 · @Benefit",
+    SubTitle    = "v8.6 · @Benefit",
     TabWidth    = 155,
     Size        = UDim2.fromOffset(610, 500),
     Theme       = "Dark",
@@ -1463,5 +1517,5 @@ end)
 -- ─── Final ────────────────────────────────────────────────────────────────────
 Window:SelectTab(1)
 task.delay(3, function() pcall(updateChances) end)
-Fluent:Notify({Title="Noob Incremental v8.5",Content="✅ Loaded | ⚽ Football auto (fair scheduler) | @Benefit",Duration=5})
+Fluent:Notify({Title="Noob Incremental v8.6",Content="✅ Loaded | ⚽ Football auto (smart tree frontier) | @Benefit",Duration=5})
 
