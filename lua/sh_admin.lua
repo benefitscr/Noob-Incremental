@@ -42,8 +42,10 @@ end
 local CCU = LP:FindFirstChild("CCUStats")
 local function cash() return CCU and CCU.Cash.Value or 0 end
 local farm = { on = false, maxBid = 5000, status = "idle" }
+local biddingOpen = false
 pcall(function()
     local A = Events:WaitForChild("Auction")
+    A.ToggleBiddingUI.OnClientEvent:Connect(function(open) biddingOpen = open end)
     A.UpdateCurrentWinningBid.OnClientEvent:Connect(function(currentBid, winnerName, _, nextBid)
         if not farm.on then return end
         if winnerName == LP.Name then
@@ -67,6 +69,39 @@ pcall(function()
             farm.status = "собрал добычу -> инвентарь"
         end)
     end)
+end)
+
+-- Авто-вход: когда фармим и торги не идут — телепорт к ближайшему гаражу и запуск аукциона
+task.spawn(function()
+    while alive() do
+        task.wait(2.5)
+        if farm.on and not biddingOpen then
+            local ch = LP.Character; local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+            local deb = workspace:FindFirstChild("_Debris")
+            local garages = deb and deb:FindFirstChild("Garages")
+            if hrp and garages then
+                local prompt, wpos, bd
+                for _, g in ipairs(garages:GetChildren()) do
+                    local p = g:FindFirstChild("EnterAuction", true)
+                    if p and p.Enabled then
+                        local pt = p.Parent
+                        local wp = (pt:IsA("BasePart") and pt.Position) or (pt:IsA("Attachment") and pt.WorldPosition) or nil
+                        if wp then
+                            local d = (wp - hrp.Position).Magnitude
+                            if not bd or d < bd then bd = d; prompt = p; wpos = wp end
+                        end
+                    end
+                end
+                if prompt and wpos then
+                    farm.status = "захожу в аукцион…"
+                    pcall(function() hrp.CFrame = CFrame.new(wpos + Vector3.new(0, 2, 0)) end)
+                    task.wait(0.8)
+                    if typeof(fireproximityprompt) == "function" then pcall(fireproximityprompt, prompt) end
+                    task.wait(1.5)
+                end
+            end
+        end
+    end
 end)
 
 -- ── стиль ─────────────────────────────────────────────────────────────────────
