@@ -38,6 +38,37 @@ local function netWorth()
     return nw and tostring(nw.Value) or "?"
 end
 
+-- ── Auto-Farm: авто-выигрыш аукционов + сбор добычи в инвентарь ────────────────
+local CCU = LP:FindFirstChild("CCUStats")
+local function cash() return CCU and CCU.Cash.Value or 0 end
+local farm = { on = false, maxBid = 5000, status = "idle" }
+pcall(function()
+    local A = Events:WaitForChild("Auction")
+    A.UpdateCurrentWinningBid.OnClientEvent:Connect(function(currentBid, winnerName, _, nextBid)
+        if not farm.on then return end
+        if winnerName == LP.Name then
+            farm.status = "лидирую: " .. tostring(currentBid)
+        elseif winnerName and type(nextBid) == "number" then
+            if nextBid <= farm.maxBid and cash() >= nextBid then
+                A.Bid:FireServer()
+                farm.status = "бид " .. tostring(nextBid) .. " (перебил " .. tostring(winnerName) .. ")"
+            else
+                farm.status = "стоп: nextBid " .. tostring(nextBid) .. " > бюджет " .. tostring(farm.maxBid)
+            end
+        end
+    end)
+    A.AuctionPickupStart.OnClientEvent:Connect(function(bid, itemCount)
+        if farm.on then farm.status = "ВЫИГРАЛ " .. tostring(itemCount) .. " шт за " .. tostring(bid) end
+    end)
+    A.AuctionPickupEnd.OnClientEvent:Connect(function()
+        if not farm.on then return end
+        task.delay(1.3, function()
+            pcall(function() Events.Vehicles.TransferVehicleItemsToInventory:FireServer() end)
+            farm.status = "собрал добычу -> инвентарь"
+        end)
+    end)
+end)
+
 -- ── стиль ─────────────────────────────────────────────────────────────────────
 local COL_BG, COL_BAR, COL_CAT = Color3.fromRGB(16, 17, 22), Color3.fromRGB(24, 26, 34), Color3.fromRGB(30, 33, 43)
 local COL_BTN, COL_ACC = Color3.fromRGB(40, 44, 56), Color3.fromRGB(120, 200, 255)
@@ -159,12 +190,28 @@ local function Category(name, startOpen)
         b.TextColor3 = Color3.fromRGB(10, 10, 10); b.Text = btnText or "OK"; corner(b, 6)
         b.MouseButton1Click:Connect(function() pcall(cb, box.Text) end); return box
     end
+    function api.Label(getText)
+        local l = Instance.new("TextLabel"); l.Parent = content; l.LayoutOrder = nextOrd()
+        l.Size = UDim2.new(1, 0, 0, 32); l.BackgroundTransparency = 1
+        l.TextXAlignment = Enum.TextXAlignment.Left; l.TextYAlignment = Enum.TextYAlignment.Top
+        l.Font = Enum.Font.Gotham; l.TextSize = 12; l.TextColor3 = Color3.fromRGB(170, 200, 170)
+        l.Text = ""; l.TextWrapped = true
+        if type(getText) == "function" then
+            task.spawn(function() while alive() and l.Parent do l.Text = tostring(getText()); task.wait(0.4) end end)
+        end
+        return l
+    end
     return api
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 --  РАЗДЕЛЫ  (сюда добавляем функции по твоим запросам)
 -- ═══════════════════════════════════════════════════════════════════════════════
+
+local Farm = Category("Auto-Farm - аукцион", true)
+Farm.Input("макс ставка за лот", "Set", function(v) local n = tonumber(v); if n then farm.maxBid = n end end)
+Farm.Toggle("AUTO-BID (выигрывать + собирать)", false, function(s) farm.on = s end)
+Farm.Label(function() return (farm.on and "[ON] " or "[off] ") .. "бюджет " .. tostring(farm.maxBid) .. "  |  " .. farm.status end)
 
 local Custom = Category("Custom / Raw", true)
 Custom.Input("путь, напр Auction/UseXRay", "Fire", function(v) if v ~= "" then fireEvent(v) end end)
