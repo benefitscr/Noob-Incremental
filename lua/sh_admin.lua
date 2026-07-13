@@ -65,7 +65,7 @@ local titleLbl = Instance.new("TextLabel"); titleLbl.Parent = bar
 titleLbl.Size = UDim2.new(1, -44, 1, 0); titleLbl.Position = UDim2.fromOffset(12, 0)
 titleLbl.BackgroundTransparency = 1; titleLbl.TextXAlignment = Enum.TextXAlignment.Left
 titleLbl.Font = Enum.Font.GothamBold; titleLbl.TextSize = 15; titleLbl.TextColor3 = COL_ACC
-titleLbl.Text = "🛠 Admin · Storage Hunters"
+titleLbl.Text = "Admin · Storage Hunters"
 
 local minBtn = Instance.new("TextButton"); minBtn.Parent = bar
 minBtn.Size = UDim2.fromOffset(28, 22); minBtn.Position = UDim2.new(1, -34, 0, 6)
@@ -123,7 +123,7 @@ local function Category(name, startOpen)
     local cpad = Instance.new("UIPadding", content); cpad.PaddingLeft = UDim.new(0, 8); cpad.PaddingBottom = UDim.new(0, 4)
 
     local open = startOpen and true or false
-    local function paint() header.Text = (open and "▾  " or "▸  ") .. name; content.Visible = open end
+    local function paint() header.Text = (open and "[-]  " or "[+]  ") .. name; content.Visible = open end
     paint()
     header.MouseButton1Click:Connect(function() open = not open; paint() end)
 
@@ -141,7 +141,7 @@ local function Category(name, startOpen)
         local b = Instance.new("TextButton"); b.Parent = content; b.LayoutOrder = nextOrd()
         b.Size = UDim2.new(1, 0, 0, 28); b.AutoButtonColor = true
         b.Font = Enum.Font.GothamMedium; b.TextSize = 13; b.TextColor3 = COL_TXT; corner(b, 6)
-        local function paint2() b.BackgroundColor3 = state and COL_ON or COL_OFF; b.Text = (state and "☑ " or "☐ ") .. text end
+        local function paint2() b.BackgroundColor3 = state and COL_ON or COL_OFF; b.Text = (state and "[x]  " or "[  ]  ") .. text end
         paint2()
         b.MouseButton1Click:Connect(function() state = not state; paint2(); pcall(cb, state) end); return b
     end
