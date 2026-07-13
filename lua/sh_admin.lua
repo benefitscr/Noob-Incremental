@@ -48,13 +48,19 @@ local doListing
 -- Диалог "Before you start": запуск аукциона перезапишет ЦЕННЫЙ лут в Lost & Found коробке.
 -- Детектим попап и вежливо жмём "No" (отказ) — НЕ теряем ценные предметы. Потом пропускаем этот склад.
 local function overrideWarnUp()
-    local host = LP.PlayerGui:FindFirstChild("ConfirmPromptHost")
-    local cp = host and host:FindFirstChild("ConfirmPrompt")
-    if not (cp and cp.Visible) then return nil end
-    local dlg = cp:FindFirstChild("Dialog")
-    local body = dlg and dlg:FindFirstChild("Body")
-    local txt = (body and body.Text) or ""
-    if txt:find("Lost") or txt:find("Found") or txt:find("override") then return cp end
+    -- В PlayerGui НЕСКОЛЬКО ScreenGui "ConfirmPromptHost" (по одному на модуль-диалог);
+    -- FindFirstChild попадает в скрытый. Перебираем ВСЕ и берём реально видимый L&F-попап.
+    for _, sg in ipairs(LP.PlayerGui:GetChildren()) do
+        if sg.Name == "ConfirmPromptHost" then
+            local cp = sg:FindFirstChild("ConfirmPrompt")
+            if cp and cp.Visible then
+                local dlg = cp:FindFirstChild("Dialog")
+                local body = dlg and dlg:FindFirstChild("Body")
+                local txt = (body and body.Text) or ""
+                if txt:find("Lost") or txt:find("Found") or txt:find("override") then return cp end
+            end
+        end
+    end
     return nil
 end
 local function declineOverride(cp)
