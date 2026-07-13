@@ -41,12 +41,12 @@ end
 -- ── Auto-Farm: авто-выигрыш аукционов + сбор добычи в инвентарь ────────────────
 local CCU = LP:FindFirstChild("CCUStats")
 local function cash() return CCU and CCU.Cash.Value or 0 end
-local farm = { on = false, maxBid = 5000, threshold = 10000, list = true, status = "idle" }
+local farm = { on = false, maxBid = 5000, threshold = 10000, list = true, busy = false, lastEnd = 0, status = "idle" }
 local biddingOpen = false
 local doListing
 pcall(function()
     local A = Events:WaitForChild("Auction")
-    A.ToggleBiddingUI.OnClientEvent:Connect(function(open) biddingOpen = open end)
+    A.ToggleBiddingUI.OnClientEvent:Connect(function(open) biddingOpen = open; if not open then farm.lastEnd = tick() end end)
     A.UpdateCurrentWinningBid.OnClientEvent:Connect(function(currentBid, winnerName, _, nextBid)
         if not farm.on then return end
         if winnerName == LP.Name then
@@ -61,15 +61,16 @@ pcall(function()
         end
     end)
     A.AuctionPickupStart.OnClientEvent:Connect(function(bid, itemCount)
-        if farm.on then farm.status = "ВЫИГРАЛ " .. tostring(itemCount) .. " шт за " .. tostring(bid) end
+        if farm.on then farm.busy = true; farm.status = "ВЫИГРАЛ " .. tostring(itemCount) .. " шт за " .. tostring(bid) end
     end)
     A.AuctionPickupEnd.OnClientEvent:Connect(function()
-        if not farm.on then return end
+        if not farm.on then farm.busy = false; return end
         task.delay(1.3, function()
             pcall(function() Events.Vehicles.TransferVehicleItemsToInventory:FireServer() end)
             farm.status = "собрал добычу -> инвентарь"
             task.wait(1.5)
             if farm.list and doListing then pcall(doListing) end
+            farm.busy = false
         end)
     end)
 end)
@@ -78,7 +79,7 @@ end)
 task.spawn(function()
     while alive() do
         task.wait(2.5)
-        if farm.on and not biddingOpen then
+        if farm.on and not biddingOpen and not farm.busy and (tick() - farm.lastEnd > 3) then
             local ch = LP.Character; local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
             local deb = workspace:FindFirstChild("_Debris")
             local garages = deb and deb:FindFirstChild("Garages")
