@@ -41,8 +41,9 @@ end
 -- ── Auto-Farm: авто-выигрыш аукционов + сбор добычи в инвентарь ────────────────
 local CCU = LP:FindFirstChild("CCUStats")
 local function cash() return CCU and CCU.Cash.Value or 0 end
-local farm = { on = false, maxBid = 5000, status = "idle" }
+local farm = { on = false, maxBid = 5000, threshold = 10000, list = true, status = "idle" }
 local biddingOpen = false
+local doListing
 pcall(function()
     local A = Events:WaitForChild("Auction")
     A.ToggleBiddingUI.OnClientEvent:Connect(function(open) biddingOpen = open end)
@@ -67,6 +68,8 @@ pcall(function()
         task.delay(1.3, function()
             pcall(function() Events.Vehicles.TransferVehicleItemsToInventory:FireServer() end)
             farm.status = "собрал добычу -> инвентарь"
+            task.wait(1.5)
+            if farm.list and doListing then pcall(doListing) end
         end)
     end)
 end)
@@ -103,6 +106,58 @@ task.spawn(function()
         end
     end
 end)
+
+-- ── Авто-листинг: дешёвые предметы на полки, дорогие/мутированные — в инвентаре ──
+local function itemVal(data)
+    if type(data) ~= "table" then return 0 end
+    local muts = 0
+    if type(data.Mutators) == "table" then for _ in pairs(data.Mutators) do muts = muts + 1 end end
+    if muts > 0 then return 999999 end                    -- мутированный редкий → всегда keep
+    return (tonumber(data.Condition) or 50) * 20          -- грубая оценка дешёвого предмета
+end
+local function freeSnaps(plot)
+    local out = {}
+    for _, shelf in ipairs(plot:GetDescendants()) do
+        if shelf:IsA("Model") and shelf:GetAttribute("IsShelf") and shelf:GetAttribute("GUID") then
+            for _, att in ipairs(shelf:GetDescendants()) do
+                if att:IsA("Attachment") and att.Name:find("SnapPoint") then
+                    local occ = false
+                    for _, m in ipairs(plot:GetDescendants()) do
+                        if m:IsA("Model") and m ~= shelf and m.PrimaryPart and (m.PrimaryPart.Position - att.WorldPosition).Magnitude < 1 then occ = true; break end
+                    end
+                    if not occ then out[#out + 1] = { guid = shelf:GetAttribute("GUID"), name = att.Name, cf = att.WorldCFrame } end
+                end
+            end
+        end
+    end
+    return out
+end
+doListing = function()
+    local pd = invoke("Plot/RequestPlotData")
+    if type(pd) ~= "table" or not pd.PlotName then return end
+    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if hrp and pd.OriginX then pcall(function() hrp.CFrame = CFrame.new(pd.OriginX, (pd.OriginY or 0) + 5, pd.OriginZ) end) end
+    task.wait(2.5)
+    local plots = workspace:FindFirstChild("_Plots")
+    local plot = plots and plots:FindFirstChild(pd.PlotName)
+    if not plot then farm.status = "магазин не загрузился"; return end
+    local snaps = freeSnaps(plot)
+    local inv = invoke("Inventory/GetPlayerInventory")
+    if type(inv) ~= "table" then return end
+    local si, listed, kept = 1, 0, 0
+    for guid, data in pairs(inv) do
+        local v = itemVal(data)
+        if v > farm.threshold then
+            kept = kept + 1
+        elseif snaps[si] then
+            local s = snaps[si]; si = si + 1
+            pcall(function() Events.Plot.PlaceStockItem:FireServer(guid, tostring(data.ItemId), s.cf, math.max(50, math.floor(v)), s.guid, s.name) end)
+            listed = listed + 1
+            task.wait(0.4)
+        end
+    end
+    farm.status = "листинг: выставил " .. listed .. ", оставил " .. kept
+end
 
 -- ── стиль ─────────────────────────────────────────────────────────────────────
 local COL_BG, COL_BAR, COL_CAT = Color3.fromRGB(16, 17, 22), Color3.fromRGB(24, 26, 34), Color3.fromRGB(30, 33, 43)
@@ -245,8 +300,10 @@ end
 
 local Farm = Category("Auto-Farm - аукцион", true)
 Farm.Input("макс ставка за лот", "Set", function(v) local n = tonumber(v); if n then farm.maxBid = n end end)
-Farm.Toggle("AUTO-BID (выигрывать + собирать)", false, function(s) farm.on = s end)
-Farm.Label(function() return (farm.on and "[ON] " or "[off] ") .. "бюджет " .. tostring(farm.maxBid) .. "  |  " .. farm.status end)
+Farm.Input("порог keep (>цена оставить)", "Set", function(v) local n = tonumber(v); if n then farm.threshold = n end end)
+Farm.Toggle("AUTO-BID (заходить + выигрывать + собирать)", false, function(s) farm.on = s end)
+Farm.Toggle("Авто-листинг дешёвых в магазин", true, function(s) farm.list = s end)
+Farm.Label(function() return (farm.on and "[ON] " or "[off] ") .. "ставка<=" .. tostring(farm.maxBid) .. " keep>" .. tostring(farm.threshold) .. "\n" .. farm.status end)
 
 local Custom = Category("Custom / Raw", true)
 Custom.Input("путь, напр Auction/UseXRay", "Fire", function(v) if v ~= "" then fireEvent(v) end end)
