@@ -41,9 +41,32 @@ end
 -- ── Auto-Farm: авто-выигрыш аукционов + сбор добычи в инвентарь ────────────────
 local CCU = LP:FindFirstChild("CCUStats")
 local function cash() return CCU and CCU.Cash.Value or 0 end
-local farm = { on = false, maxBid = 5000, threshold = 10000, list = true, busy = false, lastEnd = 0, status = "idle" }
+local farm = { on = false, maxBid = 5000, threshold = 10000, list = true, busy = false, lastEnd = 0, status = "idle", blocked = {} }
 local biddingOpen = false
 local doListing
+
+-- Диалог "Before you start": запуск аукциона перезапишет ЦЕННЫЙ лут в Lost & Found коробке.
+-- Детектим попап и вежливо жмём "No" (отказ) — НЕ теряем ценные предметы. Потом пропускаем этот склад.
+local function overrideWarnUp()
+    local host = LP.PlayerGui:FindFirstChild("ConfirmPromptHost")
+    local cp = host and host:FindFirstChild("ConfirmPrompt")
+    if not (cp and cp.Visible) then return nil end
+    local dlg = cp:FindFirstChild("Dialog")
+    local body = dlg and dlg:FindFirstChild("Body")
+    local txt = (body and body.Text) or ""
+    if txt:find("Lost") or txt:find("Found") or txt:find("override") then return cp end
+    return nil
+end
+local function declineOverride(cp)
+    local btn = cp:FindFirstChild("Dialog"); btn = btn and btn:FindFirstChild("ButtonRow"); btn = btn and btn:FindFirstChild("CancelButton")
+    if not btn then return false end
+    if typeof(getconnections) == "function" then
+        for _, c in ipairs(getconnections(btn.MouseButton1Click)) do pcall(function() c:Fire() end) end
+    end
+    if typeof(firesignal) == "function" then pcall(firesignal, btn.MouseButton1Click) end
+    local t = tick(); repeat task.wait(0.1) until (not cp.Visible) or (tick() - t > 1.5)
+    return not cp.Visible
+end
 pcall(function()
     local A = Events:WaitForChild("Auction")
     A.ToggleBiddingUI.OnClientEvent:Connect(function(open) biddingOpen = open; if not open then farm.lastEnd = tick() end end)
@@ -84,15 +107,19 @@ task.spawn(function()
             local deb = workspace:FindFirstChild("_Debris")
             local garages = deb and deb:FindFirstChild("Garages")
             if hrp and garages then
-                local prompt, wpos, bd
+                local prompt, wpos, bd, gkey
                 for _, g in ipairs(garages:GetChildren()) do
                     local p = g:FindFirstChild("EnterAuction", true)
                     if p and p.Enabled then
                         local pt = p.Parent
                         local wp = (pt:IsA("BasePart") and pt.Position) or (pt:IsA("Attachment") and pt.WorldPosition) or nil
                         if wp then
-                            local d = (wp - hrp.Position).Magnitude
-                            if not bd or d < bd then bd = d; prompt = p; wpos = wp end
+                            local key = g:GetAttribute("GUID") or (g.Name .. "#" .. math.floor(wp.X) .. "_" .. math.floor(wp.Z))
+                            local bt = farm.blocked[key]
+                            if not (bt and tick() - bt < 120) then          -- пропуск недавно заблокированных (L&F)
+                                local d = (wp - hrp.Position).Magnitude
+                                if not bd or d < bd then bd = d; prompt = p; wpos = wp; gkey = key end
+                            end
                         end
                     end
                 end
@@ -101,7 +128,16 @@ task.spawn(function()
                     pcall(function() hrp.CFrame = CFrame.new(wpos + Vector3.new(0, 2, 0)) end)
                     task.wait(0.8)
                     if typeof(fireproximityprompt) == "function" then pcall(fireproximityprompt, prompt) end
-                    task.wait(1.5)
+                    -- ждём: появится диалог "Before you start" (L&F) ЛИБО откроются торги
+                    local cp, t0 = nil, tick()
+                    repeat task.wait(0.15); cp = overrideWarnUp() until cp or biddingOpen or (tick() - t0 > 2.2)
+                    if cp then
+                        declineOverride(cp)                                 -- отказ: НЕ перезаписываем ценный лут в коробке
+                        if gkey then farm.blocked[gkey] = tick() end
+                        farm.status = "L&F: склад занят твоим лутом — отклонил, пропускаю"
+                    end
+                elseif farm.on then
+                    farm.status = "нет свободных складов (заняты L&F?) — собери коробку"
                 end
             end
         end
