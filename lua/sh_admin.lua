@@ -303,6 +303,7 @@ task.spawn(function()
                     hunter.opens = hunter.opens + 1
                     hunter.status = "открываю: " .. tgt.zone .. "…"
                     pcall(function() hrp.CFrame = CFrame.new(tgt.wp + Vector3.new(0, 3, 0)) end)
+                    pcall(function() LP:RequestStreamAroundAsync(tgt.wp) end)   -- прогрузить дальнюю зону перед чтением
                     task.wait(0.5)
                     if typeof(fireproximityprompt) == "function" then pcall(fireproximityprompt, tgt.prompt) end
                     task.wait(0.4)
@@ -318,7 +319,7 @@ task.spawn(function()
                             task.wait(0.2)
                             total, best = lotValue(hrp.Position)
                             pcall(function() hrp.CFrame = CFrame.new(tgt.wp + Vector3.new(0, 3, 0)) end)
-                        until best > 0 or tick() - t0 > 1.8
+                        until best > 0 or tick() - t0 > 3.0
                         if best >= hunter.minValue then
                             hunter.status = ("НАШЁЛ! %s: лот $%d, топ-предмет $%d >= %d — ВЫИГРЫВАЮ"):format(tgt.zone, math.floor(total), math.floor(best), hunter.minValue)
                             hunter.winning = true                      -- бид-хук добьёт и остановит охоту; остаёмся в зоне
