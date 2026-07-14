@@ -142,6 +142,37 @@ local function declineOverride(cp)
     local t = tick(); repeat task.wait(0.1) until (not cp.Visible) or (tick() - t > 1.5)
     return not cp.Visible
 end
+-- Надёжный выход из аукциона: гасит окно трофея/кат-сцену, жмёт кнопку Leave и зовёт LeaveAuction, пока не выйдем
+local function leaveAuctionNow()
+    local A = Events:FindFirstChild("Auction")
+    if not A then return false end
+    local t0 = tick()
+    while tick() - t0 < 3.5 do
+        pcall(function() A.TrophyContinue:FireServer() end)          -- убрать блокирующее окно трофея
+        pcall(function() A.AccessoryContinue:FireServer() end)
+        pcall(function() A.CinematicSequenceComplete:FireServer() end)
+        for _, sg in ipairs(LP.PlayerGui:GetChildren()) do
+            if sg:IsA("ScreenGui") and sg.Enabled then
+                for _, d in ipairs(sg:GetDescendants()) do
+                    if d:IsA("TextButton") and type(d.Text) == "string" and d.Visible and d.Text:find("Leave") then
+                        if typeof(getconnections) == "function" then
+                            for _, c in ipairs(getconnections(d.MouseButton1Click)) do pcall(function() c:Fire() end) end
+                        end
+                        if typeof(firesignal) == "function" then pcall(firesignal, d.MouseButton1Click) end
+                    end
+                end
+            end
+        end
+        local ok, res = pcall(function() return A.LeaveAuction:InvokeServer() end)
+        local inUI = false
+        for _, sg in ipairs(LP.PlayerGui:GetChildren()) do
+            if sg:IsA("ScreenGui") and sg.Enabled and sg.Name:lower():find("auctionbidding") then inUI = true; break end
+        end
+        if (ok and res) or (not inUI and not biddingOpen) then return true end
+        task.wait(0.3)
+    end
+    return false
+end
 pcall(function()
     local A = Events:WaitForChild("Auction")
     A.ToggleBiddingUI.OnClientEvent:Connect(function(open)
@@ -204,6 +235,11 @@ pcall(function()
             hunter.busy = false
         end)
     end)
+    -- Авто-скип окна трофея/аксессуара/кат-сцены (мешает торгам) — только когда фарм/охота активны
+    local function autoSkip() return hunter.on or farm.on end
+    A.TrophyFirstSight.OnClientEvent:Connect(function() if autoSkip() then task.wait(0.15); pcall(function() A.TrophyContinue:FireServer() end) end end)
+    A.AccessoryFirstSight.OnClientEvent:Connect(function() if autoSkip() then task.wait(0.15); pcall(function() A.AccessoryContinue:FireServer() end) end end)
+    A.PlayCinematicSequence.OnClientEvent:Connect(function() if autoSkip() then task.wait(0.15); pcall(function() A.CinematicSequenceComplete:FireServer() end) end end)
 end)
 
 -- Авто-вход: когда фармим и торги не идут — телепорт к ближайшему гаражу и запуск аукциона
@@ -291,7 +327,7 @@ task.spawn(function()
                             hunter.status = ("%s: лот $%d (топ $%d) < %d — дальше"):format(tgt.zone, math.floor(total), math.floor(best), hunter.minValue)
                             hunter.blocked[tgt.key] = tick()
                             pcall(function() hrp.CFrame = CFrame.new(tgt.wp + Vector3.new(0, 3, 140)) end)  -- выход из зоны
-                            pcall(function() invoke("Auction/LeaveAuction") end)
+                            leaveAuctionNow()                          -- надёжный выход (гасит трофей-окно, жмёт Leave)
                             hunter.busy = false
                         end
                     end
