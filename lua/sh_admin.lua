@@ -45,6 +45,75 @@ local farm = { on = false, maxBid = 5000, threshold = 10000, list = true, busy =
 local biddingOpen = false
 local doListing
 
+-- ── Охотник за лотами: скан топ-зон, выигрыш ТОЛЬКО лотов с предметом >= N ─────
+local RSvc = game:GetService("ReplicatedStorage")
+local ItemsCatalog; pcall(function() ItemsCatalog = require(RSvc:WaitForChild("Modules"):WaitForChild("Items")) end)
+local GaragesCfg; pcall(function() GaragesCfg = require(RSvc.Modules:FindFirstChild("Garages")) end)
+local hunter = { on = false, minValue = 50000, maxBid = 1e9, status = "idle", busy = false, winning = false, opens = 0, blocked = {} }
+local HUNT_ZONE_RANK = { ["Cargo Ship"] = 1, ["Shipyard"] = 2, ["Jurassic"] = 3, ["Farmyard"] = 4, ["Back Alley"] = 5 }
+local function userNetWorth()
+    local ls = LP:FindFirstChild("leaderstats"); local nw = ls and ls:FindFirstChild("Net Worth")
+    if nw then return tonumber((tostring(nw.Value):gsub("[^%d]", ""))) or 0 end
+    return 0
+end
+-- ценность лота из заспавненных моделей: total (сумма) и best (самый дорогой предмет)
+local function lotValue(pos)
+    if not ItemsCatalog then return 0, 0 end
+    local ok, parts = pcall(function() return workspace:GetPartBoundsInRadius(pos, 150) end)
+    if not ok then return 0, 0 end
+    local total, best, seen = 0, 0, {}
+    for _, p in ipairs(parts) do
+        local m = p:FindFirstAncestorWhichIsA("Model") or p
+        if not seen[m] then
+            seen[m] = true
+            local iid = m:GetAttribute("ItemId")
+            local cat = iid and ItemsCatalog[tostring(iid)]
+            if cat then
+                local base = tonumber(cat.BasePrice) or 0
+                local cond = tonumber(m:GetAttribute("Condition")) or 100
+                local v = base * (cond / 100)
+                local mut = m:GetAttribute("Mutators")
+                if mut and mut ~= "[]" and mut ~= "" then v = v * 3 end   -- мутация ~ дороже (грубо)
+                total = total + v
+                if v > best then best = v end
+            end
+        end
+    end
+    return total, best
+end
+-- выбор гаража в топ-зоне (по рангу зоны, затем ближайший), с учётом NW-гейта и кулдауна
+local function pickHuntGarage(garages, hrp)
+    local nw = userNetWorth()
+    local best, bestScore
+    for _, g in ipairs(garages:GetChildren()) do
+        local area = g:GetAttribute("AreaName")
+        local rank = area and HUNT_ZONE_RANK[area]
+        if rank then
+            local p = g:FindFirstChild("EnterAuction", true)
+            if p and p.Enabled then
+                local pt = p.Parent
+                local wp = (pt:IsA("BasePart") and pt.Position) or (pt:IsA("Attachment") and pt.WorldPosition) or nil
+                if wp then
+                    local gid = g:GetAttribute("GarageId")
+                    local cfg = GaragesCfg and gid and GaragesCfg[gid]
+                    local gate = (cfg and tonumber(cfg.MinNetWorth)) or 0
+                    local key = g:GetAttribute("GUID") or (g.Name .. "#" .. math.floor(wp.X) .. "_" .. math.floor(wp.Z))
+                    local bt = hunter.blocked[key]
+                    if gate <= nw and not (bt and tick() - bt < 60) then
+                        local d = (wp - hrp.Position).Magnitude
+                        local score = rank * 1e6 + d          -- приоритет: топ-зона, потом ближе
+                        if not bestScore or score < bestScore then
+                            bestScore = score
+                            best = { wp = wp, prompt = p, key = key, zone = area }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
 -- Диалог "Before you start": запуск аукциона перезапишет ЦЕННЫЙ лут в Lost & Found коробке.
 -- Детектим попап и вежливо жмём "No" (отказ) — НЕ теряем ценные предметы. Потом пропускаем этот склад.
 local function overrideWarnUp()
@@ -75,31 +144,64 @@ local function declineOverride(cp)
 end
 pcall(function()
     local A = Events:WaitForChild("Auction")
-    A.ToggleBiddingUI.OnClientEvent:Connect(function(open) biddingOpen = open; if not open then farm.lastEnd = tick() end end)
+    A.ToggleBiddingUI.OnClientEvent:Connect(function(open)
+        biddingOpen = open
+        if not open then
+            farm.lastEnd = tick()
+            if hunter.winning then                              -- торги закрылись — через 2с проверим исход
+                task.delay(2, function()
+                    if hunter.winning then                      -- AuctionPickupStart не сбросил → нас перебили
+                        hunter.winning = false
+                        hunter.status = "лот перебили (> макс ставки) — ищу дальше"
+                    end
+                end)
+            end
+        end
+    end)
     A.UpdateCurrentWinningBid.OnClientEvent:Connect(function(currentBid, winnerName, _, nextBid)
-        if not farm.on then return end
-        if winnerName == LP.Name then
-            farm.status = "лидирую: " .. tostring(currentBid)
-        elseif winnerName and type(nextBid) == "number" then
-            if nextBid <= farm.maxBid and cash() >= nextBid then
+        if farm.on then
+            if winnerName == LP.Name then
+                farm.status = "лидирую: " .. tostring(currentBid)
+            elseif winnerName and type(nextBid) == "number" then
+                if nextBid <= farm.maxBid and cash() >= nextBid then
+                    A.Bid:FireServer()
+                    farm.status = "бид " .. tostring(nextBid) .. " (перебил " .. tostring(winnerName) .. ")"
+                else
+                    farm.status = "стоп: nextBid " .. tostring(nextBid) .. " > бюджет " .. tostring(farm.maxBid)
+                end
+            end
+        end
+        if hunter.winning then                                  -- бидим ТОЛЬКО по найденному стоящему лоту
+            if winnerName == LP.Name then
+                hunter.status = "выигрываю лот — лидирую " .. tostring(currentBid)
+            elseif winnerName and type(nextBid) == "number" and nextBid <= hunter.maxBid and cash() >= nextBid then
                 A.Bid:FireServer()
-                farm.status = "бид " .. tostring(nextBid) .. " (перебил " .. tostring(winnerName) .. ")"
-            else
-                farm.status = "стоп: nextBid " .. tostring(nextBid) .. " > бюджет " .. tostring(farm.maxBid)
+                hunter.status = "бид " .. tostring(nextBid) .. " за найденный лот"
             end
         end
     end)
     A.AuctionPickupStart.OnClientEvent:Connect(function(bid, itemCount)
         if farm.on then farm.busy = true; farm.status = "ВЫИГРАЛ " .. tostring(itemCount) .. " шт за " .. tostring(bid) end
+        if hunter.winning then
+            hunter.winning = false
+            hunter.on = false                                   -- НАШЁЛ и ВЫИГРАЛ → охота стоп
+            hunter.busy = true
+            hunter.status = ("ВЫИГРАЛ лот (%s шт за %s)! Охота остановлена."):format(tostring(itemCount), tostring(bid))
+        end
     end)
     A.AuctionPickupEnd.OnClientEvent:Connect(function()
-        if not farm.on then farm.busy = false; return end
+        if not (farm.on or hunter.busy) then farm.busy = false; return end
         task.delay(1.3, function()
             pcall(function() Events.Vehicles.TransferVehicleItemsToInventory:FireServer() end)
-            farm.status = "собрал добычу -> инвентарь"
-            task.wait(1.5)
-            if farm.list and doListing then pcall(doListing) end
+            if farm.on then
+                farm.status = "собрал добычу -> инвентарь"
+                task.wait(1.5)
+                if farm.list and doListing then pcall(doListing) end
+            else
+                hunter.status = "добыча собрана в инвентарь. Охота остановлена — включи снова для нового поиска."
+            end
             farm.busy = false
+            hunter.busy = false
         end)
     end)
 end)
@@ -144,6 +246,57 @@ task.spawn(function()
                     end
                 elseif farm.on then
                     farm.status = "нет свободных складов (заняты L&F?) — собери коробку"
+                end
+            end
+        end
+    end
+end)
+
+-- Охотник: скачет по топ-зонам, открывает, читает лот; мусор — выход, стоящий (>= N) — выигрыш и стоп
+task.spawn(function()
+    while alive() do
+        task.wait(0.4)
+        if hunter.on and not hunter.winning and not hunter.busy and not biddingOpen then
+            local ch = LP.Character; local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+            local deb = workspace:FindFirstChild("_Debris")
+            local garages = deb and deb:FindFirstChild("Garages")
+            if hrp and garages then
+                local tgt = pickHuntGarage(garages, hrp)
+                if tgt then
+                    hunter.busy = true
+                    hunter.opens = hunter.opens + 1
+                    hunter.status = "открываю: " .. tgt.zone .. "…"
+                    pcall(function() hrp.CFrame = CFrame.new(tgt.wp + Vector3.new(0, 3, 0)) end)
+                    task.wait(0.5)
+                    if typeof(fireproximityprompt) == "function" then pcall(fireproximityprompt, tgt.prompt) end
+                    task.wait(0.4)
+                    local cp = overrideWarnUp()
+                    if cp then
+                        declineOverride(cp)                            -- защита: НЕ перезаписываем твой L&F
+                        hunter.blocked[tgt.key] = tick()
+                        hunter.status = "L&F в " .. tgt.zone .. " — пропускаю (берегу лут)"
+                        hunter.busy = false
+                    else
+                        local t0, total, best = tick(), 0, 0
+                        repeat
+                            task.wait(0.2)
+                            total, best = lotValue(hrp.Position)
+                            pcall(function() hrp.CFrame = CFrame.new(tgt.wp + Vector3.new(0, 3, 0)) end)
+                        until best > 0 or tick() - t0 > 1.8
+                        if best >= hunter.minValue then
+                            hunter.status = ("НАШЁЛ! %s: лот $%d, топ-предмет $%d >= %d — ВЫИГРЫВАЮ"):format(tgt.zone, math.floor(total), math.floor(best), hunter.minValue)
+                            hunter.winning = true                      -- бид-хук добьёт и остановит охоту; остаёмся в зоне
+                            hunter.busy = false
+                        else
+                            hunter.status = ("%s: лот $%d (топ $%d) < %d — дальше"):format(tgt.zone, math.floor(total), math.floor(best), hunter.minValue)
+                            hunter.blocked[tgt.key] = tick()
+                            pcall(function() hrp.CFrame = CFrame.new(tgt.wp + Vector3.new(0, 3, 140)) end)  -- выход из зоны
+                            pcall(function() invoke("Auction/LeaveAuction") end)
+                            hunter.busy = false
+                        end
+                    end
+                else
+                    hunter.status = "нет доступных топ-гаражей (кулдаун/гейт NW) — жду…"
                 end
             end
         end
@@ -344,9 +497,21 @@ end
 local Farm = Category("Auto-Farm - аукцион", true)
 Farm.Input("макс ставка за лот", "Set", function(v) local n = tonumber(v); if n then farm.maxBid = n end end)
 Farm.Input("порог keep (>цена оставить)", "Set", function(v) local n = tonumber(v); if n then farm.threshold = n end end)
-Farm.Toggle("AUTO-BID (заходить + выигрывать + собирать)", false, function(s) farm.on = s end)
+Farm.Toggle("AUTO-BID (заходить + выигрывать + собирать)", false, function(s) farm.on = s; if s then hunter.on = false end end)
 Farm.Toggle("Авто-листинг дешёвых в магазин", true, function(s) farm.list = s end)
 Farm.Label(function() return (farm.on and "[ON] " or "[off] ") .. "ставка<=" .. tostring(farm.maxBid) .. " keep>" .. tostring(farm.threshold) .. "\n" .. farm.status end)
+
+local Hunt = Category("Охотник за лотами (>= N)", false)
+Hunt.Input("мин ценность предмета N ($)", "Set", function(v) local n = tonumber(v); if n then hunter.minValue = n end end)
+Hunt.Input("макс ставка при выигрыше", "Set", function(v) local n = tonumber(v); if n then hunter.maxBid = n end end)
+Hunt.Toggle("ОХОТА: топ-зоны -> скан -> выигрыш лота >= N", false, function(s)
+    hunter.on = s
+    if s then farm.on = false; hunter.winning = false; hunter.busy = false; hunter.opens = 0 end
+end)
+Hunt.Label(function()
+    return (hunter.on and "[ОХОТА] " or "[off] ") .. "N=" .. tostring(hunter.minValue)
+        .. " ставка<=" .. tostring(hunter.maxBid) .. " откр:" .. tostring(hunter.opens) .. "\n" .. hunter.status
+end)
 
 local Custom = Category("Custom / Raw", true)
 Custom.Input("путь, напр Auction/UseXRay", "Fire", function(v) if v ~= "" then fireEvent(v) end end)
